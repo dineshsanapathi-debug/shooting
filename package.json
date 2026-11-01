@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "server": "npm --prefix server start",
-    "client": "npm --prefix client run dev -- --host 0.0.0.0"
+    "build": "npm --prefix client run build",
+    "start": "node server/server.js",
+    "dev": "npm --prefix client run dev -- --host 0.0.0.0",
+    "server": "node server/server.js"
   }
 }
-

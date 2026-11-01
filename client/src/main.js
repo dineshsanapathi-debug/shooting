@@ -14,10 +14,11 @@ import { sounds } from "./audio.js";
 // ==========================================
 // 1. SETUP SOCKET CONNECTION
 // ==========================================
-// Detect server host automatically (supports localhost or mobile on local Wi-Fi)
-const serverHost = window.location.hostname || "localhost";
-const serverPort = "3001";
-const socket = io(`http://${serverHost}:${serverPort}`);
+// Detect server host automatically: works when served from backend (same origin) or Vite dev server
+const isDevVite = window.location.port === "5173";
+const socket = isDevVite
+  ? io(`http://${window.location.hostname || "localhost"}:3001`)
+  : io();
 
 // ==========================================
 // 2. THREE.JS SCENE, CAMERA & RENDERER
