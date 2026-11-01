@@ -739,6 +739,13 @@ io.on("connection", (socket) => {
 
   // Player joins with custom character skin and name
   socket.on("join", (data) => {
+    if (defaultMatch.state === "GAME_OVER") {
+      defaultMatch.state = "LOBBY";
+      defaultMatch.lobbyTimer = 6;
+      defaultMatch.players.clear();
+      defaultMatch.initWorld();
+      io.emit("match_reset");
+    }
     const name = typeof data === "object" ? data.name : data;
     const character = typeof data === "object" ? data.character : "kelly";
     const player = defaultMatch.addPlayer(socket.id, name, character, false);
@@ -915,6 +922,29 @@ setInterval(() => {
 }, 1000 / TICK_RATE);
 
 app.get("/", (req, res) => {
+  if (req.headers.accept && req.headers.accept.includes("text/html")) {
+    const clientHost = req.hostname || "localhost";
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Free Fire 3D - Battle Royale</title>
+        <meta http-equiv="refresh" content="1;url=http://${clientHost}:5173" />
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; background: #0c0d10; color: #fff; text-align: center; padding-top: 100px; }
+          h1 { font-size: 32px; background: linear-gradient(90deg, #ff9f1a, #ff3838); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+          p { color: #a4b0be; font-size: 16px; margin: 16px 0 32px; }
+          a { display: inline-block; padding: 18px 36px; background: linear-gradient(135deg, #ff9f1a, #ff3838); color: #fff; font-weight: bold; border-radius: 12px; text-decoration: none; font-size: 20px; box-shadow: 0 8px 24px rgba(255, 56, 56, 0.4); }
+        </style>
+      </head>
+      <body>
+        <h1>🔥 Free Fire 3D Server is Online!</h1>
+        <p>Redirecting you to the 3D Game Client on Port 5173...</p>
+        <a href="http://${clientHost}:5173">👉 CLICK HERE TO OPEN GAME (PORT 5173)</a>
+      </body>
+      </html>
+    `);
+  }
   res.send({
     status: "ok",
     game: "Free Fire Style 3D Battle Royale Server",
