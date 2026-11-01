@@ -1,20 +1,10 @@
 import express from "express";
 import cors from "cors";
-import path from "path";
-import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { Server } from "socket.io";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const distPath = path.resolve(__dirname, "../client/dist");
-
 const app = express();
 app.use(cors());
-
-// Serve production built 3D client frontend
-app.use(express.static(distPath));
-
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -931,20 +921,37 @@ setInterval(() => {
   io.emit("game_state", defaultMatch.getSnapshot());
 }, 1000 / TICK_RATE);
 
-// Server status API endpoint
-app.get("/api/status", (req, res) => {
-  res.json({
+app.get("/", (req, res) => {
+  if (req.headers.accept && req.headers.accept.includes("text/html")) {
+    const clientHost = req.hostname || "localhost";
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Free Fire 3D - Battle Royale</title>
+        <meta http-equiv="refresh" content="1;url=http://${clientHost}:5173" />
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; background: #0c0d10; color: #fff; text-align: center; padding-top: 100px; }
+          h1 { font-size: 32px; background: linear-gradient(90deg, #ff9f1a, #ff3838); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+          p { color: #a4b0be; font-size: 16px; margin: 16px 0 32px; }
+          a { display: inline-block; padding: 18px 36px; background: linear-gradient(135deg, #ff9f1a, #ff3838); color: #fff; font-weight: bold; border-radius: 12px; text-decoration: none; font-size: 20px; box-shadow: 0 8px 24px rgba(255, 56, 56, 0.4); }
+        </style>
+      </head>
+      <body>
+        <h1>🔥 Free Fire 3D Server is Online!</h1>
+        <p>Redirecting you to the 3D Game Client on Port 5173...</p>
+        <a href="http://${clientHost}:5173">👉 CLICK HERE TO OPEN GAME (PORT 5173)</a>
+      </body>
+      </html>
+    `);
+  }
+  res.send({
     status: "ok",
     game: "Free Fire Style 3D Battle Royale Server",
     playersConnected: io.engine.clientsCount,
     state: defaultMatch.state,
     alivePlayers: defaultMatch.getAliveCount()
   });
-});
-
-// Fallback all other routes to the 3D Game Client
-app.use((req, res) => {
-  res.sendFile(path.join(distPath, "index.html"));
 });
 
 const PORT = 3001;
