@@ -10,24 +10,25 @@ import { VehicleManager } from "./vehicle.js";
 import { LootManager } from "./loot.js";
 import { UIManager } from "./ui.js";
 import { sounds } from "./audio.js";
+import { AirplaneModel, ParachuteModel } from "./airplane.js";
 
 // ==========================================
 // 1. SETUP SOCKET CONNECTION
 // ==========================================
-// Detect server host automatically (supports localhost or mobile on local Wi-Fi)
-const serverHost = window.location.hostname || "localhost";
-const serverPort = "3001";
-const socket = io(`http://${serverHost}:${serverPort}`);
+const isDevVite = window.location.port === "5173";
+const socket = isDevVite
+  ? io(`http://${window.location.hostname || "localhost"}:3001`)
+  : io();
 
 // ==========================================
 // 2. THREE.JS SCENE, CAMERA & RENDERER
 // ==========================================
 const container = document.getElementById("gameContainer");
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x70a1ff);
-scene.fog = new THREE.FogExp2(0x70a1ff, 0.0022);
+scene.background = new THREE.Color(0x74b9ff);
+scene.fog = new THREE.FogExp2(0x74b9ff, 0.0018);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1200);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -35,36 +36,38 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.08;
 container.appendChild(renderer.domElement);
 
-// Lighting
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x3d5634, 1.8);
+// Dynamic Lighting
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x4a6547, 1.8);
 scene.add(hemiLight);
 
-const sun = new THREE.DirectionalLight(0xfff5e6, 2.5);
-sun.position.set(160, 260, 120);
+const sun = new THREE.DirectionalLight(0xfffae6, 2.6);
+sun.position.set(180, 320, 140);
 sun.castShadow = true;
 sun.shadow.mapSize.width = 2048;
 sun.shadow.mapSize.height = 2048;
 sun.shadow.camera.near = 0.5;
-sun.shadow.camera.far = 600;
-const d = 180;
+sun.shadow.camera.far = 700;
+const d = 220;
 sun.shadow.camera.left = -d;
 sun.shadow.camera.right = d;
 sun.shadow.camera.top = d;
 sun.shadow.camera.bottom = -d;
-sun.shadow.bias = -0.0005;
+sun.shadow.bias = -0.0004;
 scene.add(sun);
 
 // ==========================================
-// 3. GAME SUBSYSTEMS
+// 3. GAME SUBSYSTEMS & MODELS
 // ==========================================
 const islandMap = new IslandMap(scene);
 const safeZone = new SafeZoneMesh(scene);
 const fxManager = new FXManager(scene);
 const vehicleManager = new VehicleManager(scene, islandMap);
 const lootManager = new LootManager(scene, islandMap);
+const airplane = new AirplaneModel(scene);
+const localParachute = new ParachuteModel(scene);
 
 // ==========================================
 // 4. LOCAL PLAYER STATE
@@ -75,9 +78,9 @@ let playerCharacterSkin = "kelly";
 let localPlayerMesh = null;
 
 const playerState = {
-  x: 0,
-  y: 0,
-  z: 0,
+  x: -330,
+  y: 2.0,
+  z: -330,
   yaw: 0,
   pitch: 0,
   vy: 0,
@@ -93,7 +96,9 @@ const playerState = {
   isFiring: false,
   isReloading: false,
   inVehicle: null,
-  currentWeapon: "ak47",
+  // Flight & Parachute States: "LANDED" | "IN_PLANE" | "FREEFALL" | "PARACHUTE"
+  flightState: "LANDED",
+  currentWeapon: "fist",
   ammo: {
     ak47: { clip: 30, reserve: 90 },
     m1014: { clip: 6, reserve: 24 },
@@ -104,9 +109,11 @@ const playerState = {
   lastShotTime: 0
 };
 
-// Remote Players map
+// Remote Entities Maps
 const remotePlayers = new Map();
+const remoteParachutes = new Map();
 let currentMatchData = null;
+let lastWarmupSecond = 60;
 
 // ==========================================
 // 5. USER INTERFACE
@@ -128,6 +135,9 @@ const ui = new UIManager({
   onPlayAgain: () => {
     ui.hideEndScreens();
     socket.emit("play_again");
+  },
+  onJumpFromPlane: () => {
+    handleFlightAction();
   }
 });
 
@@ -141,7 +151,6 @@ function updateLocalCharacterMesh() {
 }
 
 function attachWeaponMesh(charModel, weaponId) {
-  // Clear previous socket meshes
   while (charModel.weaponSocket.children.length > 0) {
     charModel.weaponSocket.remove(charModel.weaponSocket.children[0]);
   }
@@ -163,9 +172,16 @@ let joyX = 0;
 let joyY = 0;
 let isMobileSprinting = false;
 
-// PC Keyboard
 window.addEventListener("keydown", (e) => {
   keys[e.code] = true;
+
+  // Space key triggers Jump from Plane / Parachute deploy when airborne
+  if (e.code === "Space") {
+    if (playerState.flightState === "IN_PLANE" || playerState.flightState === "FREEFALL") {
+      handleFlightAction();
+      return;
+    }
+  }
 
   if (e.code === "KeyR") reloadWeapon();
   if (e.code === "KeyF") handleInteract();
@@ -206,7 +222,6 @@ document.addEventListener("mousemove", (e) => {
   playerState.yaw -= e.movementX * sens;
   playerState.pitch -= e.movementY * sens;
 
-  // Clamp vertical pitch (-75 to +75 deg)
   const maxPitch = 1.3;
   playerState.pitch = Math.max(-maxPitch, Math.min(maxPitch, playerState.pitch));
 });
@@ -215,12 +230,15 @@ document.addEventListener("mousemove", (e) => {
 window.addEventListener("mousedown", (e) => {
   sounds.ensureContext();
   if (e.button === 0 && isPointerLocked) {
-    playerState.isFiring = true;
-    tryShoot();
+    if (playerState.flightState === "LANDED") {
+      playerState.isFiring = true;
+      tryShoot();
+    }
   } else if (e.button === 2) {
-    // RMB: Toggle ADS
     e.preventDefault();
-    toggleAim(!playerState.isAiming);
+    if (playerState.flightState === "LANDED") {
+      toggleAim(!playerState.isAiming);
+    }
   }
 });
 
@@ -232,7 +250,7 @@ window.addEventListener("mouseup", (e) => {
 
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 
-// Mobile Touch Controls
+// Touch Joystick
 const touchJoystick = document.getElementById("touchJoystick");
 const touchKnob = document.getElementById("touchKnob");
 let joyActive = false;
@@ -272,7 +290,7 @@ function resetTouchJoystick() {
 touchJoystick.addEventListener("pointerup", resetTouchJoystick);
 touchJoystick.addEventListener("pointercancel", resetTouchJoystick);
 
-// Mobile Right Screen Touch Aiming
+// Touch Look Aim
 let touchLooking = false;
 let lastTouchX = 0;
 let lastTouchY = 0;
@@ -305,18 +323,26 @@ renderer.domElement.addEventListener("pointerup", () => {
 // Mobile Action Buttons
 document.getElementById("btnFire").addEventListener("pointerdown", (e) => {
   e.preventDefault();
-  playerState.isFiring = true;
-  tryShoot();
+  if (playerState.flightState === "LANDED") {
+    playerState.isFiring = true;
+    tryShoot();
+  }
 });
 document.getElementById("btnFire").addEventListener("pointerup", () => {
   playerState.isFiring = false;
 });
 
 document.getElementById("btnScope").addEventListener("click", () => {
-  toggleAim(!playerState.isAiming);
+  if (playerState.flightState === "LANDED") {
+    toggleAim(!playerState.isAiming);
+  }
 });
 
 document.getElementById("btnJump").addEventListener("click", () => {
+  if (playerState.flightState === "IN_PLANE" || playerState.flightState === "FREEFALL") {
+    handleFlightAction();
+    return;
+  }
   if (playerState.isGrounded && !playerState.inVehicle) {
     playerState.vy = 8.8;
     playerState.isGrounded = false;
@@ -324,7 +350,9 @@ document.getElementById("btnJump").addEventListener("click", () => {
 });
 
 document.getElementById("btnCrouch").addEventListener("click", () => {
-  playerState.isCrouching = !playerState.isCrouching;
+  if (playerState.flightState === "LANDED") {
+    playerState.isCrouching = !playerState.isCrouching;
+  }
 });
 
 document.getElementById("btnSprint").addEventListener("click", () => {
@@ -336,12 +364,34 @@ document.getElementById("btnReload").addEventListener("click", reloadWeapon);
 document.getElementById("btnDrive").addEventListener("click", handleInteract);
 document.getElementById("medkitQuickBtn").addEventListener("click", useMedkit);
 
-// Weapon Slot Click Switch
+// Weapon Slot Click
 document.querySelectorAll(".weapon-slot").forEach(slot => {
   slot.addEventListener("click", () => {
-    switchWeapon(slot.dataset.weapon);
+    if (playerState.flightState === "LANDED") {
+      switchWeapon(slot.dataset.weapon);
+    }
   });
 });
+
+// ==========================================
+// 7. AIRPLANE JUMP & PARACHUTE ACTIONS
+// ==========================================
+function handleFlightAction() {
+  if (playerState.flightState === "IN_PLANE") {
+    // Eject from plane!
+    playerState.flightState = "FREEFALL";
+    sounds.playShoot("deagle", true); // quick release click
+    sounds.startWindRush();
+    socket.emit("jump_from_plane");
+  } else if (playerState.flightState === "FREEFALL") {
+    // Deploy parachute
+    playerState.flightState = "PARACHUTE";
+    sounds.stopWindRush();
+    sounds.playParachuteOpen();
+    localParachute.setVisible(true);
+    socket.emit("open_parachute");
+  }
+}
 
 function toggleAim(aim) {
   playerState.isAiming = aim;
@@ -391,7 +441,9 @@ function useMedkit() {
 }
 
 function handleInteract() {
-  // 1. Check vehicle enter/exit
+  if (playerState.flightState !== "LANDED") return;
+
+  // 1. Vehicle enter/exit
   if (playerState.inVehicle) {
     socket.emit("vehicle_interact");
     return;
@@ -402,7 +454,7 @@ function handleInteract() {
     return;
   }
 
-  // 2. Check nearby loot pickup
+  // 2. Loot pickup
   const nearestLoot = lootManager.getNearestLoot(playerState.x, playerState.z, 3.0);
   if (nearestLoot) {
     socket.emit("pickup_loot", nearestLoot.id);
@@ -410,10 +462,10 @@ function handleInteract() {
 }
 
 // ==========================================
-// 7. WEAPON FIRING & BALLISTICS
+// 8. WEAPON FIRING & BALLISTICS
 // ==========================================
 function tryShoot() {
-  if (playerState.isReloading || playerState.health <= 0 || playerState.inVehicle) return;
+  if (playerState.isReloading || playerState.health <= 0 || playerState.inVehicle || playerState.flightState !== "LANDED") return;
 
   const wId = playerState.currentWeapon;
   const wConfig = WEAPON_TYPES[wId] || WEAPON_TYPES.ak47;
@@ -431,16 +483,10 @@ function tryShoot() {
   playerState.lastShotTime = now;
   ui.updateWeaponHUD(wId, ammo.clip, ammo.reserve);
 
-  // Play weapon gunshot sound
   sounds.playShoot(wId, false);
-
-  // Character recoil kick
   localPlayerMesh.triggerRecoil();
-
-  // Screen camera recoil punch
   playerState.pitch += wConfig.recoilPitch * (playerState.isAiming ? 0.4 : 1.0);
 
-  // Calculate bullet direction from camera center
   const spread = playerState.isAiming ? wConfig.adsSpread : wConfig.spread;
   const spreadX = (Math.random() - 0.5) * spread;
   const spreadY = (Math.random() - 0.5) * spread;
@@ -449,16 +495,13 @@ function tryShoot() {
   dir.applyEuler(new THREE.Euler(playerState.pitch + spreadY, playerState.yaw + spreadX, 0, "YXZ"));
   dir.normalize();
 
-  // Muzzle Flash
   const gunSocketPos = new THREE.Vector3();
   localPlayerMesh.weaponSocket.getWorldPosition(gunSocketPos);
   fxManager.createMuzzleFlash(gunSocketPos, dir);
 
-  // Bullet Tracer
   const tracerEnd = gunSocketPos.clone().add(dir.clone().multiplyScalar(wConfig.range || 150));
   fxManager.createBulletTracer(gunSocketPos, tracerEnd);
 
-  // Emit shoot to server for authoritative hit detection
   socket.emit("shoot", {
     weaponId: wId,
     dirX: dir.x,
@@ -469,11 +512,11 @@ function tryShoot() {
 }
 
 // ==========================================
-// 8. MULTIPLAYER NETWORKING EVENTS
+// 9. MULTIPLAYER NETWORKING EVENTS
 // ==========================================
 socket.on("connect", () => {
   const statusEl = document.getElementById("serverStatusText");
-  if (statusEl) statusEl.textContent = "ONLINE - SERVER READY";
+  if (statusEl) statusEl.textContent = "ONLINE - BHARAT MAP READY";
 });
 
 socket.on("welcome", (data) => {
@@ -484,26 +527,48 @@ socket.on("welcome", (data) => {
 
 socket.on("joined", (player) => {
   playerState.x = player.x;
+  playerState.y = player.y;
   playerState.z = player.z;
   playerState.health = player.health;
-  playerState.armor = player.armor;
-  playerState.helmet = player.helmet;
-  playerState.medkits = player.medkits;
+  playerState.flightState = player.flightState || "LANDED";
   playerState.currentWeapon = player.currentWeapon;
   switchWeapon(player.currentWeapon);
+});
+
+socket.on("airplane_started", (data) => {
+  playerState.flightState = "IN_PLANE";
+  sounds.startAirplaneEngine();
+});
+
+socket.on("battle_begins", () => {
+  sounds.stopAirplaneEngine();
+  sounds.stopWindRush();
 });
 
 socket.on("game_state", (state) => {
   currentMatchData = state;
 
+  // Warmup countdown audio beeps in final 5 seconds
+  if (state.state === "WARMUP" && state.warmupTimer <= 5 && state.warmupTimer !== lastWarmupSecond) {
+    lastWarmupSecond = state.warmupTimer;
+    sounds.playCountdownBeep(state.warmupTimer === 0);
+  }
+
+  // Sync Airplane Model
+  if (state.plane && (state.state === "AIRPLANE" || state.plane.active)) {
+    airplane.group.visible = true;
+    airplane.update(0.04, state.plane.progress, state.plane);
+  } else {
+    airplane.group.visible = false;
+  }
+
   // Sync Safe Zone
   safeZone.update(0.04, state.safeZone);
 
-  // Sync Remote Players
+  // Sync Remote Players & Remote Parachutes
   const currentIds = new Set();
   for (const p of state.players) {
     if (p.id === myId) {
-      // Local player health & armor updates from server
       playerState.health = p.health;
       playerState.armor = p.armor;
       playerState.helmet = p.helmet;
@@ -523,53 +588,74 @@ socket.on("game_state", (state) => {
       remotePlayers.set(p.id, remoteChar);
     }
 
+    // Remote Parachute
+    let rChute = remoteParachutes.get(p.id);
+    if (!rChute) {
+      rChute = new ParachuteModel(scene);
+      remoteParachutes.set(p.id, rChute);
+    }
+
+    // Hide remote player while inside plane
+    if (p.flightState === "IN_PLANE") {
+      remoteChar.group.visible = false;
+      rChute.setVisible(false);
+      continue;
+    }
+
+    remoteChar.group.visible = p.alive;
+
     // Interpolate remote player position
     remoteChar.group.position.x = THREE.MathUtils.lerp(remoteChar.group.position.x, p.x, 0.35);
     remoteChar.group.position.y = THREE.MathUtils.lerp(remoteChar.group.position.y, p.y, 0.35);
     remoteChar.group.position.z = THREE.MathUtils.lerp(remoteChar.group.position.z, p.z, 0.35);
-
     remoteChar.group.rotation.y = THREE.MathUtils.lerp(remoteChar.group.rotation.y, p.yaw, 0.35);
 
-    // Update animations for remote player
-    const remoteSpeed = Math.hypot(p.vx || 0, p.vz || 0);
-    const animState = !p.alive ? "death" : p.inVehicle ? "drive" : p.isCrouching ? "crouch" : remoteSpeed > 6 ? "run" : "idle";
-    remoteChar.updateAnimation(0.04, animState, remoteSpeed, p.isAiming, p.pitch || 0, true);
-    remoteChar.group.visible = p.alive;
+    // Update remote animation & parachute
+    if (p.flightState === "PARACHUTE") {
+      remoteChar.updateAnimation(0.04, "parachute", 0, false, 0, false);
+      rChute.attachTo(remoteChar.group.position, p.yaw, 0, 0);
+      rChute.setVisible(true);
+    } else if (p.flightState === "FREEFALL") {
+      remoteChar.updateAnimation(0.04, "freefall", 0, false, 0, false);
+      rChute.setVisible(false);
+    } else {
+      rChute.setVisible(false);
+      const remoteSpeed = Math.hypot(p.vx || 0, p.vz || 0);
+      const animState = !p.alive ? "death" : p.inVehicle ? "drive" : p.isCrouching ? "crouch" : remoteSpeed > 6 ? "run" : "idle";
+      remoteChar.updateAnimation(0.04, animState, remoteSpeed, p.isAiming, p.pitch || 0, true);
+    }
   }
 
-  // Remove disconnected remote players
+  // Remove disconnected entities
   for (const [id, rChar] of remotePlayers.entries()) {
     if (!currentIds.has(id)) {
       scene.remove(rChar.group);
       remotePlayers.delete(id);
+      const rC = remoteParachutes.get(id);
+      if (rC) {
+        scene.remove(rC.group);
+        remoteParachutes.delete(id);
+      }
     }
   }
 
-  // Sync Vehicles
   vehicleManager.syncVehicles(state.vehicles);
-
-  // Update Kill Feed
   ui.updateKillFeed(state.killFeed);
-
-  // Update HUD
   ui.updateHUD(playerState, state);
   ui.drawMinimap(playerState.x, playerState.z, playerState.yaw, state, state.vehicles);
 });
 
 socket.on("hit", (data) => {
   if (data.shooter === myId) {
-    // We hit an enemy! Show hitmarker & play hit sound
     ui.showHitmarker(data.isHeadshot);
     sounds.playHit(data.isHeadshot);
   } else if (data.target === myId) {
-    // We took damage! Show red damage arc
     ui.showDamageDirection(Math.random() * Math.PI * 2);
   }
 });
 
 socket.on("shot", (data) => {
   if (data.shooterId !== myId) {
-    // Remote player shot
     sounds.playShoot(data.weaponId, true);
     if (data.origin && data.dir) {
       const orig = new THREE.Vector3(data.origin.x, data.origin.y, data.origin.z);
@@ -615,7 +701,7 @@ socket.on("match_reset", () => {
 });
 
 // ==========================================
-// 9. LOCAL PHYSICS & MOVEMENT LOOP
+// 10. LOCAL PHYSICS & MOVEMENT LOOP
 // ==========================================
 let lastMoveSend = 0;
 let footstepTimer = 0;
@@ -626,7 +712,99 @@ function updatePlayerMovement(delta) {
     return;
   }
 
-  // If in vehicle, delegate control to vehicle physics
+  // 1. IN AIRPLANE FLIGHT STATE
+  if (playerState.flightState === "IN_PLANE") {
+    localPlayerMesh.group.visible = false;
+    localParachute.setVisible(false);
+
+    if (currentMatchData && currentMatchData.plane) {
+      playerState.x = currentMatchData.plane.x;
+      playerState.y = currentMatchData.plane.altitude;
+      playerState.z = currentMatchData.plane.z;
+      playerState.yaw = currentMatchData.plane.heading;
+    }
+    return;
+  }
+
+  localPlayerMesh.group.visible = true;
+
+  // 2. FREEFALL SKYDIVE STATE
+  if (playerState.flightState === "FREEFALL") {
+    localParachute.setVisible(false);
+
+    // Skydive fall speed (~18 to 26 m/s)
+    const diveSpeed = keys["KeyW"] || joyY < -0.2 ? 26 : 18;
+    playerState.vy = -diveSpeed;
+    playerState.y += playerState.vy * delta;
+
+    // Horizontal steering in freefall
+    const steerF = (keys["KeyW"] ? 1 : 0) - (keys["KeyS"] ? 1 : 0) - joyY;
+    const steerS = (keys["KeyD"] ? 1 : 0) - (keys["KeyA"] ? 1 : 0) + joyX;
+    const hSpeed = 16.0;
+
+    const moveX = (Math.sin(playerState.yaw) * steerF + Math.cos(playerState.yaw) * steerS) * hSpeed * delta;
+    const moveZ = (Math.cos(playerState.yaw) * steerF - Math.sin(playerState.yaw) * steerS) * hSpeed * delta;
+    playerState.x += moveX;
+    playerState.z += moveZ;
+
+    localPlayerMesh.group.position.set(playerState.x, playerState.y, playerState.z);
+    localPlayerMesh.group.rotation.y = playerState.yaw;
+    localPlayerMesh.updateAnimation(delta, "freefall", 0, false, 0, false);
+
+    sounds.updateWindSpeed(Math.abs(playerState.vy) / 26);
+
+    // Auto-open parachute at 38m altitude
+    const groundY = islandMap.getHeight(playerState.x, playerState.z);
+    if (playerState.y <= groundY + 38) {
+      handleFlightAction(); // Opens parachute
+    }
+
+    sendMovement(delta);
+    return;
+  }
+
+  // 3. PARACHUTE GLIDE STATE
+  if (playerState.flightState === "PARACHUTE") {
+    // Gentle glide descent speed (~5.5 m/s)
+    playerState.vy = -5.5;
+    playerState.y += playerState.vy * delta;
+
+    // Horizontal glide control
+    const steerF = (keys["KeyW"] ? 1 : 0) - (keys["KeyS"] ? 0.5 : 0) - joyY;
+    const steerS = (keys["KeyD"] ? 1 : 0) - (keys["KeyA"] ? 1 : 0) + joyX;
+    const glideSpeed = 11.0;
+
+    const moveX = (Math.sin(playerState.yaw) * steerF + Math.cos(playerState.yaw) * steerS) * glideSpeed * delta;
+    const moveZ = (Math.cos(playerState.yaw) * steerF - Math.sin(playerState.yaw) * steerS) * glideSpeed * delta;
+    playerState.x += moveX;
+    playerState.z += moveZ;
+
+    localPlayerMesh.group.position.set(playerState.x, playerState.y, playerState.z);
+    localPlayerMesh.group.rotation.y = playerState.yaw;
+    localPlayerMesh.updateAnimation(delta, "parachute", 0, false, 0, false);
+
+    // Attach parachute canopy model
+    localParachute.attachTo(playerState, playerState.yaw, steerS, steerF);
+    localParachute.setVisible(true);
+
+    // Touchdown ground detection
+    const groundY = islandMap.getHeight(playerState.x, playerState.z);
+    if (playerState.y <= groundY + 0.3) {
+      playerState.y = groundY;
+      playerState.vy = 0;
+      playerState.flightState = "LANDED";
+      localParachute.setVisible(false);
+      sounds.playLandingThump();
+      socket.emit("player_landed");
+    }
+
+    sendMovement(delta);
+    return;
+  }
+
+  // 4. NORMAL BOOTS-ON-THE-GROUND COMBAT & VEHICLE MOVEMENT
+  localParachute.setVisible(false);
+
   if (playerState.inVehicle) {
     const forwardInput = (keys["KeyW"] || keys["ArrowUp"] ? 1 : 0) - (keys["KeyS"] || keys["ArrowDown"] ? 1 : 0) - joyY;
     const steerInput = (keys["KeyA"] || keys["ArrowLeft"] ? -1 : 0) + (keys["KeyD"] || keys["ArrowRight"] ? 1 : 0) + joyX;
@@ -645,7 +823,6 @@ function updatePlayerMovement(delta) {
         playerState.yaw = vData.rot;
       });
 
-      // Attach player mesh inside vehicle
       localPlayerMesh.group.position.set(v.position.x, v.position.y + 0.3, v.position.z);
       localPlayerMesh.group.rotation.y = v.rotation.y;
       localPlayerMesh.updateAnimation(delta, "drive", 0, false, 0, true);
@@ -656,7 +833,6 @@ function updatePlayerMovement(delta) {
     vehicleManager.activeVehicle = null;
   }
 
-  // Keyboard / Joystick movement vectors
   const forward = (keys["KeyW"] || keys["ArrowUp"] ? 1 : 0) - (keys["KeyS"] || keys["ArrowDown"] ? 1 : 0) - joyY;
   const sideways = (keys["KeyD"] || keys["ArrowRight"] ? 1 : 0) - (keys["KeyA"] || keys["ArrowLeft"] ? 1 : 0) + joyX;
 
@@ -667,7 +843,6 @@ function updatePlayerMovement(delta) {
     const isSprinting = (keys["ShiftLeft"] || keys["ShiftRight"] || isMobileSprinting) && forward > 0.1 && !playerState.isCrouching && !playerState.isAiming;
     playerState.isSprinting = isSprinting;
 
-    // Kelly speed boost passive skill (+15%)
     const skillMultiplier = playerCharacterSkin === "kelly" ? 1.15 : 1.0;
     const baseSpeed = playerState.isCrouching ? 3.5 : isSprinting ? 10.5 : 6.8;
     speed = baseSpeed * skillMultiplier;
@@ -681,13 +856,11 @@ function updatePlayerMovement(delta) {
     const nextX = playerState.x + moveX;
     const nextZ = playerState.z + moveZ;
 
-    // Island boundary & building obstacle collision check
     if (!islandMap.checkCollision(nextX, nextZ, 0.6)) {
       playerState.x = nextX;
       playerState.z = nextZ;
     }
 
-    // Footstep audio cadence
     footstepTimer += delta * (isSprinting ? 14 : 9);
     if (footstepTimer > 3.0 && playerState.isGrounded) {
       sounds.playFootstep();
@@ -697,7 +870,7 @@ function updatePlayerMovement(delta) {
     playerState.isSprinting = false;
   }
 
-  // Gravity & Vertical Physics
+  // Gravity
   const groundAltitude = islandMap.getHeight(playerState.x, playerState.z);
 
   if (keys["Space"] && playerState.isGrounded) {
@@ -707,7 +880,7 @@ function updatePlayerMovement(delta) {
 
   if (!playerState.isGrounded || playerState.vy !== 0) {
     playerState.y += playerState.vy * delta;
-    playerState.vy -= 22 * delta; // Gravity
+    playerState.vy -= 22 * delta;
 
     if (playerState.y <= groundAltitude) {
       playerState.y = groundAltitude;
@@ -718,11 +891,9 @@ function updatePlayerMovement(delta) {
     playerState.y = groundAltitude;
   }
 
-  // Update local player model transform
   localPlayerMesh.group.position.set(playerState.x, playerState.y, playerState.z);
   localPlayerMesh.group.rotation.y = playerState.yaw;
 
-  // Determine animation state
   let animState = "idle";
   if (playerState.isCrouching) animState = "crouch";
   else if (playerState.isSprinting) animState = "sprint";
@@ -730,15 +901,16 @@ function updatePlayerMovement(delta) {
 
   localPlayerMesh.updateAnimation(delta, animState, speed, playerState.isAiming, playerState.pitch, playerState.isGrounded);
 
-  // Continuous automatic fire if holding trigger
   if (playerState.isFiring) {
     const wConfig = WEAPON_TYPES[playerState.currentWeapon];
-    if (wConfig && wConfig.isAuto) {
-      tryShoot();
-    }
+    if (wConfig && wConfig.isAuto) tryShoot();
   }
 
-  // Send movement update to server at 25Hz
+  sendMovement(delta);
+  checkInteractionPrompt();
+}
+
+function sendMovement() {
   const now = performance.now();
   if (now - lastMoveSend > 40 && socket.connected) {
     socket.emit("move", {
@@ -749,16 +921,18 @@ function updatePlayerMovement(delta) {
       pitch: playerState.pitch,
       isCrouching: playerState.isCrouching,
       isSprinting: playerState.isSprinting,
-      isAiming: playerState.isAiming
+      isAiming: playerState.isAiming,
+      flightState: playerState.flightState
     });
     lastMoveSend = now;
   }
-
-  // Check nearby interaction prompt
-  checkInteractionPrompt();
 }
 
 function checkInteractionPrompt() {
+  if (playerState.flightState !== "LANDED") {
+    ui.showInteractionPrompt(null);
+    return;
+  }
   if (playerState.inVehicle) {
     ui.showInteractionPrompt("[F] EXIT VEHICLE");
     return;
@@ -777,16 +951,46 @@ function checkInteractionPrompt() {
 }
 
 // ==========================================
-// 10. THIRD-PERSON CAMERA CONTROLLER
+// 11. CAMERA CONTROLLER (TPS / AIRPLANE / SKYDIVE)
 // ==========================================
 function updateCamera(delta) {
-  const wConfig = WEAPON_TYPES[playerState.currentWeapon] || WEAPON_TYPES.ak47;
-  const targetFov = playerState.isAiming ? wConfig.zoomFov : 70;
-  camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 12 * delta);
-  camera.updateProjectionMatrix();
+  // 1. Airplane Flight Camera View
+  if (playerState.flightState === "IN_PLANE" && currentMatchData && currentMatchData.plane) {
+    const pl = currentMatchData.plane;
+    const camDist = 38.0;
+    const camHeight = 16.0;
 
+    const targetPos = new THREE.Vector3(
+      pl.x - Math.sin(pl.heading) * camDist,
+      pl.y + camHeight,
+      pl.z - Math.cos(pl.heading) * camDist
+    );
+    camera.position.lerp(targetPos, 8 * delta);
+    camera.lookAt(pl.x + Math.sin(pl.heading) * 15, pl.y, pl.z + Math.cos(pl.heading) * 15);
+    camera.fov = 75;
+    camera.updateProjectionMatrix();
+    return;
+  }
+
+  // 2. Freefall Skydive & Parachute Camera View
+  if (playerState.flightState === "FREEFALL" || playerState.flightState === "PARACHUTE") {
+    const camDist = playerState.flightState === "FREEFALL" ? 6.5 : 8.5;
+    const camHeight = playerState.flightState === "FREEFALL" ? 3.0 : 4.5;
+
+    const targetPos = new THREE.Vector3(
+      playerState.x - Math.sin(playerState.yaw) * camDist,
+      playerState.y + camHeight,
+      playerState.z - Math.cos(playerState.yaw) * camDist
+    );
+    camera.position.lerp(targetPos, 14 * delta);
+    camera.lookAt(playerState.x, playerState.y, playerState.z);
+    camera.fov = 72;
+    camera.updateProjectionMatrix();
+    return;
+  }
+
+  // 3. Vehicle Chase Camera
   if (playerState.inVehicle) {
-    // Vehicle Chase Camera
     const dist = 9.0;
     const height = 4.0;
     const vPos = new THREE.Vector3(
@@ -796,15 +1000,21 @@ function updateCamera(delta) {
     );
     camera.position.lerp(vPos, 14 * delta);
     camera.lookAt(playerState.x, playerState.y + 1.2, playerState.z);
+    camera.fov = 70;
+    camera.updateProjectionMatrix();
     return;
   }
 
-  // Over-The-Shoulder Third Person TPS Camera
+  // 4. Over-The-Shoulder Third Person TPS Camera
+  const wConfig = WEAPON_TYPES[playerState.currentWeapon] || WEAPON_TYPES.ak47;
+  const targetFov = playerState.isAiming ? wConfig.zoomFov : 70;
+  camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 12 * delta);
+  camera.updateProjectionMatrix();
+
   const camDist = playerState.isAiming ? 2.4 : 4.8;
   const shoulderOffset = playerState.isAiming ? 0.65 : 0.85;
   const heightOffset = playerState.isCrouching ? 1.2 : 1.7;
 
-  // Calculate target camera position behind player with pitch tilt
   const cosPitch = Math.cos(playerState.pitch);
   const sinPitch = Math.sin(playerState.pitch);
 
@@ -812,7 +1022,6 @@ function updateCamera(delta) {
   const backZ = -Math.cos(playerState.yaw) * cosPitch * camDist;
   const backY = sinPitch * camDist;
 
-  // Right shoulder lateral offset vector
   const rightX = Math.cos(playerState.yaw) * shoulderOffset;
   const rightZ = -Math.sin(playerState.yaw) * shoulderOffset;
 
@@ -822,15 +1031,11 @@ function updateCamera(delta) {
     playerState.z + backZ + rightZ
   );
 
-  // Prevent camera clipping into terrain
   const camTerrainY = islandMap.getHeight(targetCamPos.x, targetCamPos.z) + 0.4;
-  if (targetCamPos.y < camTerrainY) {
-    targetCamPos.y = camTerrainY;
-  }
+  if (targetCamPos.y < camTerrainY) targetCamPos.y = camTerrainY;
 
   camera.position.lerp(targetCamPos, 20 * delta);
 
-  // Aim Look Target
   const lookDistance = 60;
   const lookTarget = new THREE.Vector3(
     playerState.x + rightX + Math.sin(playerState.yaw) * cosPitch * lookDistance,
@@ -839,13 +1044,11 @@ function updateCamera(delta) {
   );
 
   camera.lookAt(lookTarget);
-
-  // Update Compass Heading
   ui.updateCompass(playerState.yaw);
 }
 
 // ==========================================
-// 11. MAIN RAF GAME LOOP
+// 12. MAIN RAF GAME LOOP
 // ==========================================
 let lastFrameTime = performance.now();
 
@@ -856,25 +1059,20 @@ function animate() {
   const delta = Math.min(0.08, (now - lastFrameTime) / 1000);
   lastFrameTime = now;
 
-  // Update subsystems
   islandMap.update(delta);
   lootManager.update(delta);
   fxManager.update(delta);
 
-  // Update Player & Camera
   updatePlayerMovement(delta);
   updateCamera(delta);
 
-  // Render Scene
   renderer.render(scene, camera);
 }
 
 animate();
 
-// Screen Resize Handler
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-

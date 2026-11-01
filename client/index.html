@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>🔥 Free Fire - 3D Battle Royale</title>
+  <title>🔥 Free Fire - India 3D Battle Royale</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -147,6 +147,28 @@
 
     <!-- Loot & Vehicle Interaction Prompt -->
     <div id="interactionPrompt"></div>
+
+    <!-- Airplane Flight & Parachute Jump Overlay -->
+    <div id="flightOverlay" style="display: none;">
+      <div id="flightHeader">
+        <span class="flight-icon">✈️</span>
+        <span id="flightHeaderText">AIRPLANE FLIGHT ACROSS BHARAT</span>
+      </div>
+      <button id="btnJumpPlane" class="plane-jump-btn">
+        <span class="jump-key">[ SPACE ]</span>
+        <span class="jump-text">JUMP FROM PLANE</span>
+      </button>
+      <div id="flightTelemetry">
+        <div class="telemetry-box">
+          <span class="tel-label">ALTITUDE</span>
+          <span id="telAltitude" class="tel-val">115m</span>
+        </div>
+        <div class="telemetry-box">
+          <span class="tel-label">STATUS</span>
+          <span id="telStatus" class="tel-val">IN PLANE</span>
+        </div>
+      </div>
+    </div>
 
     <!-- Bottom Left: Status Bars (HP & Armor) -->
     <div id="vitalBarsContainer">

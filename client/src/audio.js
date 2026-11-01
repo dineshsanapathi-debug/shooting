@@ -350,6 +350,178 @@ class SoundSystem {
     });
   }
 
+  // Airplane Engine Rumble Loop (4 Turboprops)
+  startAirplaneEngine() {
+    if (this.planeRunning || this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    this.planeRunning = true;
+    this.planeGain = this.ctx.createGain();
+    this.planeGain.gain.setValueAtTime(0.28, this.ctx.currentTime);
+
+    // Deep twin drone oscillators
+    this.planeOsc1 = this.ctx.createOscillator();
+    this.planeOsc2 = this.ctx.createOscillator();
+    this.planeOsc1.type = "sawtooth";
+    this.planeOsc2.type = "triangle";
+    this.planeOsc1.frequency.setValueAtTime(58, this.ctx.currentTime);
+    this.planeOsc2.frequency.setValueAtTime(116, this.ctx.currentTime);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(280, this.ctx.currentTime);
+
+    this.planeOsc1.connect(filter);
+    this.planeOsc2.connect(filter);
+    filter.connect(this.planeGain);
+    this.planeGain.connect(this.ctx.destination);
+
+    this.planeOsc1.start();
+    this.planeOsc2.start();
+  }
+
+  stopAirplaneEngine() {
+    if (!this.planeRunning) return;
+    this.planeRunning = false;
+    if (this.planeGain && this.ctx) {
+      this.planeGain.gain.setTargetAtTime(0.001, this.ctx.currentTime, 0.2);
+      setTimeout(() => {
+        try {
+          this.planeOsc1?.stop();
+          this.planeOsc2?.stop();
+          this.planeOsc1?.disconnect();
+          this.planeOsc2?.disconnect();
+        } catch (_) {}
+      }, 250);
+    }
+  }
+
+  // Freefall Wind Rush
+  startWindRush() {
+    if (this.windRunning || this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    this.windRunning = true;
+    const bufferSize = this.ctx.sampleRate * 2;
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+
+    this.windSource = this.ctx.createBufferSource();
+    this.windSource.buffer = noiseBuffer;
+    this.windSource.loop = true;
+
+    this.windFilter = this.ctx.createBiquadFilter();
+    this.windFilter.type = "bandpass";
+    this.windFilter.frequency.setValueAtTime(600, this.ctx.currentTime);
+    this.windFilter.Q.setValueAtTime(1.5, this.ctx.currentTime);
+
+    this.windGain = this.ctx.createGain();
+    this.windGain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+
+    this.windSource.connect(this.windFilter);
+    this.windFilter.connect(this.windGain);
+    this.windGain.connect(this.ctx.destination);
+
+    this.windSource.start();
+  }
+
+  updateWindSpeed(ratio) {
+    if (!this.windRunning || !this.windFilter || !this.windGain || !this.ctx) return;
+    const f = 300 + ratio * 800;
+    const v = 0.15 + ratio * 0.35;
+    this.windFilter.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.1);
+    this.windGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.1);
+  }
+
+  stopWindRush() {
+    if (!this.windRunning) return;
+    this.windRunning = false;
+    if (this.windGain && this.ctx) {
+      this.windGain.gain.setTargetAtTime(0.001, this.ctx.currentTime, 0.15);
+      setTimeout(() => {
+        try {
+          this.windSource?.stop();
+          this.windSource?.disconnect();
+        } catch (_) {}
+      }, 200);
+    }
+  }
+
+  // Parachute Deployment Snap
+  playParachuteOpen() {
+    if (this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(260, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.25);
+
+    gain.gain.setValueAtTime(0.65, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.3);
+
+    this.playNoiseCrack(t, 0.25, 600, 0.5);
+  }
+
+  // Landing Impact Thump
+  playLandingThump() {
+    if (this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(25, t + 0.2);
+
+    gain.gain.setValueAtTime(0.7, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+
+  // Countdown Beep
+  playCountdownBeep(isFinal = false) {
+    if (this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(isFinal ? 880 : 587, t);
+
+    gain.gain.setValueAtTime(0.4, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + (isFinal ? 0.35 : 0.12));
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + (isFinal ? 0.35 : 0.12));
+  }
+
   // BOOYAH! Victory Fanfare
   playBooyah() {
     if (this.isMuted) return;

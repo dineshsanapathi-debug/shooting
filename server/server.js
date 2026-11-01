@@ -1,10 +1,18 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { Server } from "socket.io";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, "../client/dist");
+
 const app = express();
 app.use(cors());
+app.use(express.static(distPath));
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -28,38 +36,57 @@ const WEAPON_CONFIGS = {
 
 // BOT NAMES FOR BATTLE ROYALE
 const BOT_NAMES = [
-  "ShadowNinja", "KellySniper", "AlokBeast", "HayatoBlade", "ChronoGod",
-  "ViperStrike", "CobraKai", "DesertFox", "GhostRider", "Phoenix99",
-  "TitanSlayer", "ApexHunter", "StormBringer", "BlazeKing", "FrostBite",
-  "SilentKill", "ThunderBolt", "WarMachine", "AlphaWolf", "RavenEye",
-  "ZeroCool", "RogueAgent", "DeathStroke", "NightCrawler", "IronClad"
+  "Vikram_Warrior", "Rajput_Blade", "Aarav_Sniper", "Karan_Hunter", "Arjun_Strike",
+  "Shivaji_Lion", "Veer_Shooter", "Rohan_Apex", "Aditya_Fire", "Dev_Storm",
+  "Kabir_Shadow", "Tara_Falcon", "Pooja_Viper", "Ananya_Pro", "Rani_Sniper",
+  "Cobra_Commando", "Garuda_IAF", "Maratha_Force", "Punjab_Tigers", "Gorkha_Brave"
 ];
 
-// MATCH STATE
+// MATCH STATE MACHINE
 class BattleRoyaleMatch {
   constructor(id, mode = "solo", maxPlayers = 50) {
     this.id = id;
     this.mode = mode;
     this.maxPlayers = maxPlayers;
-    this.state = "LOBBY"; // LOBBY, DROPPING, IN_GAME, GAME_OVER
-    this.lobbyTimer = 15; // seconds countdown in lobby
+
+    // Phases: WARMUP (60s), AIRPLANE (30s flight), IN_GAME (combat & safe zone), GAME_OVER
+    this.state = "WARMUP";
+    this.warmupTimer = 60; // 60s warm-up countdown
     this.matchTime = 0;
+
+    // Airplane Flight Path across India Map
+    this.plane = {
+      active: false,
+      flightDuration: 28, // 28s flight
+      elapsed: 0,
+      startX: -360,
+      startZ: -360,
+      endX: 360,
+      endZ: 360,
+      altitude: 115,
+      progress: 0,
+      x: -360,
+      y: 115,
+      z: -360,
+      heading: 0.785
+    };
+
     this.players = new Map();
     this.lootItems = new Map();
     this.vehicles = new Map();
     this.airdrops = [];
     this.killFeed = [];
 
-    // Safe Zone Stages
+    // Safe Zone Stages across India Map
     this.safeZone = {
-      x: 0,
+      x: 10,
       z: 0,
       radius: 360,
-      targetX: 0,
+      targetX: 10,
       targetZ: 0,
       targetRadius: 360,
       stage: 0,
-      timer: 30, // seconds until next shrink
+      timer: 35, // seconds until next shrink
       isShrinking: false,
       shrinkDuration: 40,
       shrinkElapsed: 0,
@@ -70,8 +97,37 @@ class BattleRoyaleMatch {
     this.initWorld();
   }
 
+  generateFlightPath() {
+    // Generate randomized flight path across the map perimeter
+    const angles = [
+      { startX: -370, startZ: -370, endX: 370, endZ: 370 }, // SW to NE
+      { startX: -370, startZ: 370, endX: 370, endZ: -370 }, // NW to SE
+      { startX: 0, startZ: -370, endX: 0, endZ: 370 },       // N to S
+      { startX: -370, startZ: 0, endX: 370, endZ: 0 }        // W to E
+    ];
+    const path = angles[Math.floor(Math.random() * angles.length)];
+
+    const dx = path.endX - path.startX;
+    const dz = path.endZ - path.startZ;
+
+    this.plane = {
+      active: true,
+      flightDuration: 28,
+      elapsed: 0,
+      startX: path.startX,
+      startZ: path.startZ,
+      endX: path.endX,
+      endZ: path.endZ,
+      altitude: 115,
+      progress: 0,
+      x: path.startX,
+      y: 115,
+      z: path.startZ,
+      heading: Math.atan2(dx, dz)
+    };
+  }
+
   initWorld() {
-    // Generate initial loot items across compound locations
     let lootId = 1;
     const lootTypes = [
       { type: "weapon", id: "ak47", name: "AK47", ammo: 90 },
@@ -90,19 +146,21 @@ class BattleRoyaleMatch {
       { type: "medkit", id: "inhaler", name: "Energy Inhaler", count: 2 }
     ];
 
-    // Compound hotspots
+    // Loot distributed across the 10 Indian Landmark Locations
     const POIs = [
-      { x: 0, z: 0, spread: 60, count: 25 },       // Clock Tower / Central Outpost
-      { x: 120, z: -100, spread: 50, count: 18 },  // Factory / Hangar
-      { x: -140, z: 110, spread: 50, count: 18 },  // Mill / Village
-      { x: 130, z: 120, spread: 45, count: 15 },   // Bimasakti Strip
-      { x: -110, z: -130, spread: 45, count: 15 }, // Peak / Watchtower
-      { x: -220, z: 0, spread: 40, count: 12 },    // Coast Port
-      { x: 220, z: 40, spread: 40, count: 12 },    // Plantation
-      { x: 0, z: 220, spread: 40, count: 12 },     // Riverside
-      { x: 0, z: -220, spread: 40, count: 12 }     // Rim Nam Village
+      { x: 20, z: -20, spread: 45, count: 28 },    // 1. Red Fort Bastion
+      { x: 170, z: -140, spread: 40, count: 22 },  // 2. Gramin Village
+      { x: -160, z: 150, spread: 50, count: 26 },  // 3. Mumbai Tech City
+      { x: -180, z: -140, spread: 40, count: 18 }, // 4. Thar Desert Haveli
+      { x: 0, z: -250, spread: 35, count: 15 },    // 5. Himalayan Ridge
+      { x: 180, z: 130, spread: 40, count: 18 },   // 6. Nilgiri Rainforest
+      { x: 120, z: 10, spread: 45, count: 20 },    // 7. IAF Airbase
+      { x: -90, z: -50, spread: 40, count: 18 },   // 8. Mill Compound
+      { x: 30, z: 240, spread: 40, count: 16 },    // 9. Goa Coastal Beach
+      { x: 0, z: 20, spread: 30, count: 12 }       // 10. Ganga River Crossing Bridge
     ];
 
+    this.lootItems.clear();
     POIs.forEach(poi => {
       for (let i = 0; i < poi.count; i++) {
         const itemType = lootTypes[Math.floor(Math.random() * lootTypes.length)];
@@ -119,18 +177,19 @@ class BattleRoyaleMatch {
       }
     });
 
-    // Spawn 8 drivable vehicles across roads and settlements
+    // 8 Drivable Buggies across Indian Roads
     const vehicleSpawns = [
-      { id: "v1", x: 25, z: 15, rot: 0.4 },
-      { id: "v2", x: -120, z: 90, rot: 1.2 },
-      { id: "v3", x: 100, z: -80, rot: -0.7 },
-      { id: "v4", x: -90, z: -110, rot: 2.1 },
-      { id: "v5", x: 110, z: 110, rot: -1.5 },
-      { id: "v6", x: -190, z: 20, rot: 0.8 },
-      { id: "v7", x: 190, z: -30, rot: -2.3 },
-      { id: "v8", x: 10, z: 180, rot: 3.1 }
+      { id: "v1", x: 20, z: 25, rot: 0 },
+      { id: "v2", x: -150, z: 120, rot: 1.57 },
+      { id: "v3", x: 150, z: -120, rot: -0.7 },
+      { id: "v4", x: -160, z: -120, rot: 2.1 },
+      { id: "v5", x: 120, z: 35, rot: -1.5 },
+      { id: "v6", x: -70, z: -35, rot: 0.8 },
+      { id: "v7", x: 25, z: 210, rot: -2.3 },
+      { id: "v8", x: 5, z: -70, rot: 3.1 }
     ];
 
+    this.vehicles.clear();
     vehicleSpawns.forEach(v => {
       this.vehicles.set(v.id, {
         id: v.id,
@@ -148,10 +207,10 @@ class BattleRoyaleMatch {
   }
 
   addPlayer(socketId, name = "Soldier", character = "kelly", isBot = false) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = 50 + Math.random() * 180;
-    const spawnX = Math.cos(angle) * dist;
-    const spawnZ = Math.sin(angle) * dist;
+    // If during warm-up, spawn at Warm-up Staging Camp (-330, -330)
+    const isWarmup = this.state === "WARMUP";
+    const spawnX = isWarmup ? -330 + (Math.random() - 0.5) * 25 : (Math.random() - 0.5) * 120;
+    const spawnZ = isWarmup ? -330 + (Math.random() - 0.5) * 25 : (Math.random() - 0.5) * 120;
 
     const player = {
       id: socketId,
@@ -167,18 +226,22 @@ class BattleRoyaleMatch {
       kills: 0,
       damageDealt: 0,
       x: spawnX,
-      y: 0,
+      y: isWarmup ? 1.8 : 115,
       z: spawnZ,
       pitch: 0,
-      yaw: angle + Math.PI,
+      yaw: 0,
       vx: 0,
       vz: 0,
-      isGrounded: true,
+      isGrounded: isWarmup,
       isCrouching: false,
       isSprinting: false,
       isAiming: false,
       isFiring: false,
       inVehicle: null,
+      // Flight & Skydive State: "IN_PLANE" | "FREEFALL" | "PARACHUTE" | "LANDED"
+      flightState: isWarmup ? "LANDED" : "IN_PLANE",
+      inPlane: !isWarmup,
+      chuteOpen: false,
       currentWeapon: "fist",
       weapons: {
         fist: { id: "fist", ammo: 999, reserve: 999 },
@@ -187,14 +250,14 @@ class BattleRoyaleMatch {
         pistol: null
       },
       lastShotTime: 0,
-      teamId: socketId, // solo default
+      teamId: socketId,
       // Bot behavior states
       botTargetId: null,
       botState: "LOOTING",
-      botTimer: 0
+      botTimer: 0,
+      botJumpProgress: 0.15 + Math.random() * 0.65
     };
 
-    // If bot, give initial primary weapon
     if (isBot) {
       const botGuns = ["ak47", "m1014", "deagle", "ak47"];
       const chosen = botGuns[Math.floor(Math.random() * botGuns.length)];
@@ -209,18 +272,14 @@ class BattleRoyaleMatch {
   }
 
   removePlayer(socketId) {
-    // If in vehicle, exit vehicle
     const p = this.players.get(socketId);
     if (p && p.inVehicle) {
       const v = this.vehicles.get(p.inVehicle);
-      if (v && v.driverId === socketId) {
-        v.driverId = null;
-      }
+      if (v && v.driverId === socketId) v.driverId = null;
     }
     this.players.delete(socketId);
   }
 
-  // Populate remaining slots with smart AI bots up to maxPlayers (or standard 20-30 for active matches)
   fillWithBots(targetCount = 25) {
     let currentCount = this.players.size;
     let botIndex = 0;
@@ -235,25 +294,105 @@ class BattleRoyaleMatch {
     }
   }
 
-  startMatch() {
+  startAirplaneSequence() {
+    this.state = "AIRPLANE";
+    this.generateFlightPath();
+
+    // Fill bots if needed
+    this.fillWithBots(Math.min(this.maxPlayers, 30));
+
+    // Board all players onto airplane
+    for (const p of this.players.values()) {
+      p.inPlane = true;
+      p.flightState = "IN_PLANE";
+      p.x = this.plane.startX;
+      p.y = this.plane.altitude;
+      p.z = this.plane.startZ;
+    }
+
+    io.emit("airplane_started", { plane: this.plane });
+  }
+
+  startBattleCombat() {
     this.state = "IN_GAME";
     this.matchTime = 0;
-    this.safeZone.timer = 40;
+    this.safeZone.timer = 45;
     this.safeZone.stage = 1;
     this.safeZone.isShrinking = false;
     this.safeZone.radius = 350;
     this.safeZone.targetRadius = 240;
     this.safeZone.targetX = (Math.random() - 0.5) * 60;
     this.safeZone.targetZ = (Math.random() - 0.5) * 60;
+
+    io.emit("battle_begins");
   }
 
   update(delta) {
-    if (this.state === "LOBBY") {
-      this.lobbyTimer -= delta;
-      if (this.lobbyTimer <= 0) {
-        // Auto fill bots and start match
-        this.fillWithBots(Math.min(this.maxPlayers, 30));
-        this.startMatch();
+    // 1. WARM-UP LOBBY PHASE
+    if (this.state === "WARMUP") {
+      this.warmupTimer -= delta;
+      if (this.warmupTimer <= 0) {
+        this.startAirplaneSequence();
+      }
+      return;
+    }
+
+    // 2. AIRPLANE FLIGHT PHASE
+    if (this.state === "AIRPLANE") {
+      this.plane.elapsed += delta;
+      this.plane.progress = Math.min(1.0, this.plane.elapsed / this.plane.flightDuration);
+
+      // Interpolate plane position
+      this.plane.x = this.plane.startX + (this.plane.endX - this.plane.startX) * this.plane.progress;
+      this.plane.z = this.plane.startZ + (this.plane.endZ - this.plane.startZ) * this.plane.progress;
+
+      // Keep players inside plane if not jumped
+      for (const p of this.players.values()) {
+        if (p.inPlane) {
+          p.x = this.plane.x;
+          p.y = this.plane.altitude;
+          p.z = this.plane.z;
+
+          // AI Bots Eject at assigned flight progress
+          if (p.isBot && this.plane.progress >= p.botJumpProgress) {
+            p.inPlane = false;
+            p.flightState = "FREEFALL";
+            p.vx = Math.sin(this.plane.heading) * 6 + (Math.random() - 0.5) * 4;
+            p.vz = Math.cos(this.plane.heading) * 6 + (Math.random() - 0.5) * 4;
+            io.emit("player_jumped", { playerId: p.id, x: p.x, y: p.y, z: p.z });
+          }
+        } else if (p.isBot && p.flightState !== "LANDED") {
+          // Bot skydive & parachute descent
+          if (p.flightState === "FREEFALL") {
+            p.y -= 18 * delta;
+            p.x += (p.vx || 0) * delta;
+            p.z += (p.vz || 0) * delta;
+            if (p.y <= 38) {
+              p.flightState = "PARACHUTE";
+              p.chuteOpen = true;
+            }
+          } else if (p.flightState === "PARACHUTE") {
+            p.y -= 5.5 * delta;
+            p.x += (p.vx || 0) * 0.6 * delta;
+            p.z += (p.vz || 0) * 0.6 * delta;
+            if (p.y <= 1.5) {
+              p.flightState = "LANDED";
+              p.chuteOpen = false;
+              p.y = 1.0;
+            }
+          }
+        }
+      }
+
+      // If flight ends, force-jump remaining players & transition to battle
+      if (this.plane.progress >= 1.0) {
+        for (const p of this.players.values()) {
+          if (p.inPlane) {
+            p.inPlane = false;
+            p.flightState = "FREEFALL";
+          }
+        }
+        this.startBattleCombat();
       }
       return;
     }
@@ -306,7 +445,6 @@ class BattleRoyaleMatch {
         sz.shrinkDuration = Math.max(20, 40 - sz.stage * 4);
         sz.dps = 2 + sz.stage * 2;
 
-        // Next target radius and center inside current safe zone
         const nextRadius = Math.max(15, sz.radius * 0.55);
         const maxOffset = Math.max(5, sz.radius - nextRadius);
         const randAngle = Math.random() * Math.PI * 2;
@@ -321,7 +459,7 @@ class BattleRoyaleMatch {
   applyStormDamage(delta) {
     const sz = this.safeZone;
     for (const player of this.players.values()) {
-      if (!player.alive) continue;
+      if (!player.alive || player.flightState !== "LANDED") continue;
       const distFromCenter = Math.hypot(player.x - sz.x, player.z - sz.z);
       if (distFromCenter > sz.radius) {
         const damage = sz.dps * delta;
@@ -335,18 +473,16 @@ class BattleRoyaleMatch {
 
   updateBots(delta) {
     const sz = this.safeZone;
-    const alivePlayers = Array.from(this.players.values()).filter(p => p.alive);
+    const alivePlayers = Array.from(this.players.values()).filter(p => p.alive && p.flightState === "LANDED");
 
     for (const bot of alivePlayers) {
       if (!bot.isBot) continue;
 
       bot.botTimer -= delta;
 
-      // 1. Storm Survival: If outside or near safe zone edge, navigate towards safe zone center
       const distFromZoneCenter = Math.hypot(bot.x - sz.x, bot.z - sz.z);
       const isNearStorm = distFromZoneCenter > sz.radius * 0.85;
 
-      // 2. Find closest enemy
       let nearestEnemy = null;
       let nearestDist = 80;
       for (const other of alivePlayers) {
@@ -363,11 +499,9 @@ class BattleRoyaleMatch {
       let shouldShoot = false;
 
       if (isNearStorm) {
-        // Move towards safe zone
         moveTargetX = sz.x + (Math.random() - 0.5) * 30;
         moveTargetZ = sz.z + (Math.random() - 0.5) * 30;
       } else if (nearestEnemy) {
-        // Face and engage enemy
         const dx = nearestEnemy.x - bot.x;
         const dz = nearestEnemy.z - bot.z;
         bot.yaw = Math.atan2(dx, dz);
@@ -377,12 +511,10 @@ class BattleRoyaleMatch {
           moveTargetX = nearestEnemy.x;
           moveTargetZ = nearestEnemy.z;
         } else if (nearestDist < 8) {
-          // Back up a bit
           moveTargetX = bot.x - Math.sin(bot.yaw) * 10;
           moveTargetZ = bot.z - Math.cos(bot.yaw) * 10;
         }
       } else {
-        // Wander or seek loot
         if (bot.botTimer <= 0) {
           bot.botTimer = 3 + Math.random() * 4;
           const wanderAngle = Math.random() * Math.PI * 2;
@@ -392,7 +524,6 @@ class BattleRoyaleMatch {
         }
       }
 
-      // Move bot towards moveTarget
       const mdx = moveTargetX - bot.x;
       const mdz = moveTargetZ - bot.z;
       const mdist = Math.hypot(mdx, mdz);
@@ -402,9 +533,7 @@ class BattleRoyaleMatch {
         bot.vz = (mdz / mdist) * speed;
         bot.x += bot.vx;
         bot.z += bot.vz;
-        if (!nearestEnemy) {
-          bot.yaw = Math.atan2(mdx, mdz);
-        }
+        if (!nearestEnemy) bot.yaw = Math.atan2(mdx, mdz);
         bot.isSprinting = mdist > 15;
       } else {
         bot.vx = 0;
@@ -412,13 +541,11 @@ class BattleRoyaleMatch {
         bot.isSprinting = false;
       }
 
-      // Bot Shooting Logic
       if (shouldShoot && nearestEnemy) {
         const now = Date.now();
         const weaponConfig = WEAPON_CONFIGS[bot.currentWeapon] || WEAPON_CONFIGS.ak47;
         if (now - bot.lastShotTime >= weaponConfig.fireRate * 1.3) {
           bot.lastShotTime = now;
-          // Apply some bot spread inaccuracy
           const spreadX = (Math.random() - 0.5) * 0.12;
           const spreadZ = (Math.random() - 0.5) * 0.12;
           const dirX = Math.sin(bot.yaw) + spreadX;
@@ -439,7 +566,7 @@ class BattleRoyaleMatch {
   updateVehicles(delta) {
     for (const v of this.vehicles.values()) {
       if (!v.driverId) {
-        v.speed *= 0.94; // friction
+        v.speed *= 0.94;
         continue;
       }
       const driver = this.players.get(v.driverId);
@@ -447,15 +574,13 @@ class BattleRoyaleMatch {
         v.driverId = null;
         continue;
       }
-      // Keep vehicle at driver position
       v.x = driver.x;
       v.z = driver.z;
       v.rot = driver.yaw;
 
-      // Roadkill collision with enemies
       if (Math.abs(v.speed) > 12) {
         for (const p of this.players.values()) {
-          if (p.id === v.driverId || !p.alive || p.inVehicle) continue;
+          if (p.id === v.driverId || !p.alive || p.inVehicle || p.flightState !== "LANDED") continue;
           const d = Math.hypot(p.x - v.x, p.z - v.z);
           if (d < 3.2) {
             const hitDamage = Math.round(Math.abs(v.speed) * 3);
@@ -472,7 +597,6 @@ class BattleRoyaleMatch {
   }
 
   updateAirdrops(delta) {
-    // Drop legendary crate every 90 seconds during match
     if (this.matchTime > 40 && Math.floor(this.matchTime) % 90 === 0 && this.airdrops.length < 3) {
       const dropAngle = Math.random() * Math.PI * 2;
       const dropDist = Math.random() * this.safeZone.radius * 0.6;
@@ -491,7 +615,6 @@ class BattleRoyaleMatch {
       io.emit("airdrop_incoming", airdrop);
     }
 
-    // Animate falling airdrops
     for (const ad of this.airdrops) {
       if (ad.y > ad.targetY) {
         ad.y = Math.max(ad.targetY, ad.y - delta * 5);
@@ -501,7 +624,7 @@ class BattleRoyaleMatch {
 
   handlePlayerShoot(shooterId, data) {
     const shooter = this.players.get(shooterId);
-    if (!shooter || !shooter.alive) return;
+    if (!shooter || !shooter.alive || shooter.flightState !== "LANDED") return;
 
     const weaponId = data.weaponId || shooter.currentWeapon || "ak47";
     const weaponConfig = WEAPON_CONFIGS[weaponId] || WEAPON_CONFIGS.ak47;
@@ -516,13 +639,12 @@ class BattleRoyaleMatch {
     const dirX = dx / length;
     const dirZ = dz / length;
 
-    // Check hit against all other alive players
     let hitTarget = null;
     let hitDistance = weaponConfig.range;
     let isHeadshot = false;
 
     for (const target of this.players.values()) {
-      if (target.id === shooterId || !target.alive) continue;
+      if (target.id === shooterId || !target.alive || target.flightState !== "LANDED") continue;
       if (shooter.teamId && shooter.teamId === target.teamId && this.mode !== "solo") continue;
 
       const vx = target.x - shooter.x;
@@ -530,14 +652,10 @@ class BattleRoyaleMatch {
       const forwardDist = vx * dirX + vz * dirZ;
       const lateralDist = Math.abs(vx * dirZ - vz * dirX);
 
-      // Bounding cylinder check (width ~1.8m, height ~2.0m)
       if (forwardDist > 0.8 && forwardDist < hitDistance && lateralDist < 1.6) {
         hitTarget = target;
         hitDistance = forwardDist;
-        // Check if aiming at head (pitch / vertical offset)
-        if (data.isHeadshot || Math.random() < 0.2) {
-          isHeadshot = true;
-        }
+        if (data.isHeadshot || Math.random() < 0.2) isHeadshot = true;
       }
     }
 
@@ -545,7 +663,6 @@ class BattleRoyaleMatch {
       let rawDamage = weaponConfig.damage;
       if (isHeadshot) rawDamage *= 1.9;
 
-      // Apply Armor / Helmet mitigation
       let actualDamage = rawDamage;
       if (isHeadshot && hitTarget.helmet > 0) {
         const absorption = Math.min(hitTarget.helmet, rawDamage * 0.45);
@@ -576,7 +693,6 @@ class BattleRoyaleMatch {
       }
     }
 
-    // Broadcast shot event for muzzle flash, sound & bullet tracer
     io.emit("shot", {
       shooterId,
       weaponId,
@@ -590,9 +706,7 @@ class BattleRoyaleMatch {
     victim.alive = false;
     victim.health = 0;
 
-    if (killer) {
-      killer.kills++;
-    }
+    if (killer) killer.kills++;
 
     const killEntry = {
       killerName: killer ? killer.name : "The Safe Zone",
@@ -614,7 +728,6 @@ class BattleRoyaleMatch {
       remainingAlive: this.getAliveCount()
     });
 
-    // Drop Death Crate with victim's loot
     const crateId = `crate_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const droppedLoot = {
       id: crateId,
@@ -679,6 +792,8 @@ class BattleRoyaleMatch {
         isSprinting: p.isSprinting,
         isAiming: p.isAiming,
         inVehicle: p.inVehicle,
+        flightState: p.flightState,
+        chuteOpen: p.chuteOpen,
         currentWeapon: p.currentWeapon
       });
     }
@@ -700,10 +815,11 @@ class BattleRoyaleMatch {
 
     return {
       state: this.state,
-      lobbyTimer: Math.ceil(this.lobbyTimer),
+      warmupTimer: Math.ceil(this.warmupTimer),
       matchTime: Math.floor(this.matchTime),
       aliveCount: this.getAliveCount(),
       totalPlayers: this.players.size,
+      plane: this.plane,
       safeZone: {
         x: Math.round(this.safeZone.x * 10) / 10,
         z: Math.round(this.safeZone.z * 10) / 10,
@@ -722,26 +838,26 @@ class BattleRoyaleMatch {
   }
 }
 
-// Global active match (expandable to multiple rooms)
-const defaultMatch = new BattleRoyaleMatch("br_island_main", "solo", 50);
+// Global active match
+const defaultMatch = new BattleRoyaleMatch("br_bharat_island", "solo", 50);
 
 // SOCKET.IO REAL-TIME NETWORKING
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
-  // Send initial welcome & full loot map
   socket.emit("welcome", {
     id: socket.id,
     matchState: defaultMatch.state,
+    warmupTimer: Math.ceil(defaultMatch.warmupTimer),
+    plane: defaultMatch.plane,
     loot: Array.from(defaultMatch.lootItems.values()),
     vehicles: Array.from(defaultMatch.vehicles.values())
   });
 
-  // Player joins with custom character skin and name
   socket.on("join", (data) => {
     if (defaultMatch.state === "GAME_OVER") {
-      defaultMatch.state = "LOBBY";
-      defaultMatch.lobbyTimer = 6;
+      defaultMatch.state = "WARMUP";
+      defaultMatch.warmupTimer = 60;
       defaultMatch.players.clear();
       defaultMatch.initWorld();
       io.emit("match_reset");
@@ -753,22 +869,45 @@ io.on("connection", (socket) => {
     socket.emit("joined", player);
   });
 
-  // Client movement update with anti-teleport bounds checking
+  // Player jumps from airplane
+  socket.on("jump_from_plane", () => {
+    const player = defaultMatch.players.get(socket.id);
+    if (!player || !player.inPlane) return;
+
+    player.inPlane = false;
+    player.flightState = "FREEFALL";
+    player.x = defaultMatch.plane.x;
+    player.y = defaultMatch.plane.altitude;
+    player.z = defaultMatch.plane.z;
+    player.yaw = defaultMatch.plane.heading;
+
+    io.emit("player_jumped", { playerId: socket.id, x: player.x, y: player.y, z: player.z });
+  });
+
+  // Player opens parachute
+  socket.on("open_parachute", () => {
+    const player = defaultMatch.players.get(socket.id);
+    if (!player || player.flightState !== "FREEFALL") return;
+    player.flightState = "PARACHUTE";
+    player.chuteOpen = true;
+    io.emit("parachute_opened", { playerId: socket.id });
+  });
+
+  // Player lands on ground
+  socket.on("player_landed", () => {
+    const player = defaultMatch.players.get(socket.id);
+    if (!player) return;
+    player.flightState = "LANDED";
+    player.chuteOpen = false;
+    io.emit("player_landed", { playerId: socket.id });
+  });
+
   socket.on("move", (data) => {
     const player = defaultMatch.players.get(socket.id);
     if (!player || !player.alive) return;
 
     if (!Number.isFinite(data.x) || !Number.isFinite(data.z)) return;
-
-    // Boundary check (within 450 units from center)
-    if (Math.hypot(data.x, data.z) > 450) return;
-
-    // Teleportation protection: max distance per tick
-    const deltaMove = Math.hypot(data.x - player.x, data.z - player.z);
-    if (deltaMove > 25 && !player.inVehicle) {
-      // Speed hack prevention / desync catchup
-      return;
-    }
+    if (Math.hypot(data.x, data.z) > 460) return;
 
     player.x = data.x;
     player.y = Number.isFinite(data.y) ? data.y : player.y;
@@ -778,34 +917,30 @@ io.on("connection", (socket) => {
     player.isCrouching = !!data.isCrouching;
     player.isSprinting = !!data.isSprinting;
     player.isAiming = !!data.isAiming;
+    if (data.flightState) player.flightState = data.flightState;
+    if (data.chuteOpen !== undefined) player.chuteOpen = data.chuteOpen;
   });
 
-  // Shooting action
   socket.on("shoot", (data) => {
     defaultMatch.handlePlayerShoot(socket.id, data);
   });
 
-  // Weapon switch
   socket.on("switch_weapon", (weaponId) => {
     const player = defaultMatch.players.get(socket.id);
     if (!player || !player.alive) return;
-    if (WEAPON_CONFIGS[weaponId]) {
-      player.currentWeapon = weaponId;
-    }
+    if (WEAPON_CONFIGS[weaponId]) player.currentWeapon = weaponId;
   });
 
-  // Loot pickup
   socket.on("pickup_loot", (lootId) => {
     const player = defaultMatch.players.get(socket.id);
-    if (!player || !player.alive) return;
+    if (!player || !player.alive || player.flightState !== "LANDED") return;
 
     const item = defaultMatch.lootItems.get(lootId);
     if (!item) return;
 
     const dist = Math.hypot(player.x - item.x, player.z - item.z);
-    if (dist > 4.5) return; // Too far to pick up
+    if (dist > 4.5) return;
 
-    // Apply item to player inventory
     if (item.type === "weapon") {
       player.currentWeapon = item.id;
       if (!player.weapons.primary) {
@@ -829,7 +964,6 @@ io.on("connection", (socket) => {
     io.emit("loot_picked_up", { lootId, playerId: socket.id, item });
   });
 
-  // Use Medkit
   socket.on("use_medkit", () => {
     const player = defaultMatch.players.get(socket.id);
     if (!player || !player.alive || player.medkits <= 0) return;
@@ -840,13 +974,11 @@ io.on("connection", (socket) => {
     socket.emit("medkit_used", { health: player.health, medkits: player.medkits });
   });
 
-  // Vehicle Enter / Exit
   socket.on("vehicle_interact", () => {
     const player = defaultMatch.players.get(socket.id);
-    if (!player || !player.alive) return;
+    if (!player || !player.alive || player.flightState !== "LANDED") return;
 
     if (player.inVehicle) {
-      // Exit vehicle
       const v = defaultMatch.vehicles.get(player.inVehicle);
       if (v) {
         v.driverId = null;
@@ -856,7 +988,6 @@ io.on("connection", (socket) => {
       player.inVehicle = null;
       io.emit("vehicle_update", { vehicleId: v.id, driverId: null });
     } else {
-      // Enter nearest vehicle
       for (const v of defaultMatch.vehicles.values()) {
         const d = Math.hypot(player.x - v.x, player.z - v.z);
         if (d < 4.0 && !v.driverId) {
@@ -869,7 +1000,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Vehicle driving input
   socket.on("vehicle_drive", (data) => {
     const player = defaultMatch.players.get(socket.id);
     if (!player || !player.inVehicle) return;
@@ -887,18 +1017,16 @@ io.on("connection", (socket) => {
     player.yaw = data.rot;
   });
 
-  // Vehicle Horn
   socket.on("vehicle_horn", () => {
     const player = defaultMatch.players.get(socket.id);
     if (!player || !player.inVehicle) return;
     io.emit("horn_sound", { vehicleId: player.inVehicle, x: player.x, z: player.z });
   });
 
-  // Restart / Play Again
   socket.on("play_again", () => {
     if (defaultMatch.state === "GAME_OVER") {
-      defaultMatch.state = "LOBBY";
-      defaultMatch.lobbyTimer = 10;
+      defaultMatch.state = "WARMUP";
+      defaultMatch.warmupTimer = 60;
       defaultMatch.initWorld();
       io.emit("match_reset");
     }
@@ -910,7 +1038,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// MAIN SERVER TICK LOOP (25 Hz)
+// MAIN TICK LOOP (25 Hz)
 let lastTick = Date.now();
 setInterval(() => {
   const now = Date.now();
@@ -921,41 +1049,24 @@ setInterval(() => {
   io.emit("game_state", defaultMatch.getSnapshot());
 }, 1000 / TICK_RATE);
 
-app.get("/", (req, res) => {
-  if (req.headers.accept && req.headers.accept.includes("text/html")) {
-    const clientHost = req.hostname || "localhost";
-    return res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Free Fire 3D - Battle Royale</title>
-        <meta http-equiv="refresh" content="1;url=http://${clientHost}:5173" />
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; background: #0c0d10; color: #fff; text-align: center; padding-top: 100px; }
-          h1 { font-size: 32px; background: linear-gradient(90deg, #ff9f1a, #ff3838); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-          p { color: #a4b0be; font-size: 16px; margin: 16px 0 32px; }
-          a { display: inline-block; padding: 18px 36px; background: linear-gradient(135deg, #ff9f1a, #ff3838); color: #fff; font-weight: bold; border-radius: 12px; text-decoration: none; font-size: 20px; box-shadow: 0 8px 24px rgba(255, 56, 56, 0.4); }
-        </style>
-      </head>
-      <body>
-        <h1>🔥 Free Fire 3D Server is Online!</h1>
-        <p>Redirecting you to the 3D Game Client on Port 5173...</p>
-        <a href="http://${clientHost}:5173">👉 CLICK HERE TO OPEN GAME (PORT 5173)</a>
-      </body>
-      </html>
-    `);
-  }
-  res.send({
+// API status
+app.get("/api/status", (req, res) => {
+  res.json({
     status: "ok",
-    game: "Free Fire Style 3D Battle Royale Server",
+    game: "Free Fire 3D - India Edition",
     playersConnected: io.engine.clientsCount,
     state: defaultMatch.state,
+    warmupTimer: Math.ceil(defaultMatch.warmupTimer),
     alivePlayers: defaultMatch.getAliveCount()
   });
 });
 
-const PORT = 3001;
-httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`Battle Royale Multiplayer Server running on port ${PORT}`);
+// Fallback all routes to 3D client
+app.use((req, res) => {
+  res.sendFile(path.join(distPath, "index.html"));
 });
 
+const PORT = 3001;
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`Free Fire 3D Battle Royale Server running on port ${PORT}`);
+});

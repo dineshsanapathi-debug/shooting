@@ -907,3 +907,91 @@ canvas {
   }
 }
 
+/* AIRPLANE FLIGHT & JUMP OVERLAY */
+#flightOverlay {
+  position: absolute;
+  top: 75px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  z-index: 60;
+  pointer-events: auto;
+}
+
+#flightHeader {
+  background: rgba(14, 17, 23, 0.85);
+  border: 1px solid var(--primary-gold);
+  border-radius: 20px;
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.plane-jump-btn {
+  background: linear-gradient(135deg, #ff9f1a, #ff3838);
+  border: 2px solid #fff;
+  border-radius: 14px;
+  padding: 16px 36px;
+  color: #fff;
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  box-shadow: 0 0 28px rgba(255, 56, 56, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  animation: jumpGlow 1s infinite alternate;
+  touch-action: none;
+}
+
+@keyframes jumpGlow {
+  from { transform: scale(1); box-shadow: 0 0 20px rgba(255, 56, 56, 0.6); }
+  to { transform: scale(1.05); box-shadow: 0 0 35px rgba(255, 177, 66, 0.9); }
+}
+
+.jump-key {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #fffa65;
+}
+
+#flightTelemetry {
+  display: flex;
+  gap: 12px;
+}
+
+.telemetry-box {
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 6px 14px;
+  text-align: center;
+  min-width: 90px;
+}
+
+.tel-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 800;
+  color: #a4b0be;
+  letter-spacing: 1px;
+}
+
+.tel-val {
+  display: block;
+  font-size: 15px;
+  font-weight: 900;
+  color: #fffa65;
+}
+
+

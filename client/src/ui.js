@@ -64,6 +64,16 @@ export class UIManager {
         }
       });
     });
+
+    // Airplane Jump / Parachute Deploy Button
+    const jumpPlaneBtn = document.getElementById("btnJumpPlane");
+    if (jumpPlaneBtn) {
+      jumpPlaneBtn.addEventListener("click", () => {
+        if (this.callbacks.onJumpFromPlane) {
+          this.callbacks.onJumpFromPlane();
+        }
+      });
+    }
   }
 
   showLobby(show = true) {
@@ -126,17 +136,63 @@ export class UIManager {
     if (aliveEl && matchData) aliveEl.textContent = matchData.aliveCount || 1;
     if (killsEl) killsEl.textContent = player.kills || 0;
 
-    // Safe Zone Timer Banner
+    // Match State Banner (Warm-up / Airplane / Battle Zone)
     const zoneBanner = document.getElementById("zoneBanner");
     const zoneText = document.getElementById("zoneTimerText");
-    if (zoneBanner && zoneText && matchData && matchData.safeZone) {
-      const sz = matchData.safeZone;
-      if (sz.isShrinking) {
-        zoneBanner.className = "zone-shrinking";
-        zoneText.textContent = "⚠️ SAFE ZONE IS SHRINKING!";
-      } else {
+    const flightOverlay = document.getElementById("flightOverlay");
+    const flightHeader = document.getElementById("flightHeaderText");
+    const jumpBtn = document.getElementById("btnJumpPlane");
+    const telAlt = document.getElementById("telAltitude");
+    const telStat = document.getElementById("telStatus");
+
+    if (zoneBanner && zoneText && matchData) {
+      if (matchData.state === "WARMUP") {
         zoneBanner.className = "zone-waiting";
-        zoneText.textContent = `⚡ SAFE ZONE SHRINKING IN: ${sz.timer}s`;
+        zoneText.textContent = `⏳ WARM-UP LOBBY: ${matchData.warmupTimer}s (AIRPLANE SOON)`;
+      } else if (matchData.state === "AIRPLANE") {
+        zoneBanner.className = "zone-waiting";
+        zoneText.textContent = `✈️ AIRPLANE IN FLIGHT`;
+      } else if (matchData.safeZone) {
+        const sz = matchData.safeZone;
+        if (sz.isShrinking) {
+          zoneBanner.className = "zone-shrinking";
+          zoneText.textContent = "⚠️ SAFE ZONE IS SHRINKING!";
+        } else {
+          zoneBanner.className = "zone-waiting";
+          zoneText.textContent = `⚡ SAFE ZONE SHRINKING IN: ${sz.timer}s`;
+        }
+      }
+    }
+
+    // Airplane & Parachute Telemetry Overlay
+    if (flightOverlay && player) {
+      const fState = player.flightState;
+      if (fState === "IN_PLANE") {
+        flightOverlay.style.display = "flex";
+        if (flightHeader) flightHeader.textContent = "AIRPLANE FLIGHT ACROSS BHARAT";
+        if (jumpBtn) {
+          jumpBtn.style.display = "flex";
+          jumpBtn.querySelector(".jump-text").textContent = "JUMP FROM PLANE";
+        }
+        if (telAlt) telAlt.textContent = "115m";
+        if (telStat) telStat.textContent = "IN AIRPLANE";
+      } else if (fState === "FREEFALL") {
+        flightOverlay.style.display = "flex";
+        if (flightHeader) flightHeader.textContent = "FREEFALL SKYDIVING";
+        if (jumpBtn) {
+          jumpBtn.style.display = "flex";
+          jumpBtn.querySelector(".jump-text").textContent = "DEPLOY PARACHUTE";
+        }
+        if (telAlt) telAlt.textContent = `${Math.max(1, Math.round(player.y || 50))}m`;
+        if (telStat) telStat.textContent = "FREEFALLING";
+      } else if (fState === "PARACHUTE") {
+        flightOverlay.style.display = "flex";
+        if (flightHeader) flightHeader.textContent = "PARACHUTE GLIDING";
+        if (jumpBtn) jumpBtn.style.display = "none";
+        if (telAlt) telAlt.textContent = `${Math.max(1, Math.round(player.y || 15))}m`;
+        if (telStat) telStat.textContent = "PARACHUTE OPEN";
+      } else {
+        flightOverlay.style.display = "none";
       }
     }
   }
@@ -268,6 +324,44 @@ export class UIManager {
         ctx.arc(vx, vz, 3.5, 0, Math.PI * 2);
         ctx.fill();
       });
+    }
+
+    // Airplane Flight Path Line & Plane Marker
+    if (matchData && matchData.plane && (matchData.state === "AIRPLANE" || matchData.state === "WARMUP")) {
+      const pl = matchData.plane;
+      const sx = cx + (pl.startX - playerX) * scale;
+      const sz_start = cy + (pl.startZ - playerZ) * scale;
+      const ex = cx + (pl.endX - playerX) * scale;
+      const ez = cy + (pl.endZ - playerZ) * scale;
+
+      // Dashed flight trajectory line
+      ctx.beginPath();
+      ctx.moveTo(sx, sz_start);
+      ctx.lineTo(ex, ez);
+      ctx.strokeStyle = "#fffa65";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Moving Airplane Icon
+      const apx = cx + (pl.x - playerX) * scale;
+      const apz = cy + (pl.z - playerZ) * scale;
+      ctx.save();
+      ctx.translate(apx, apz);
+      ctx.rotate(pl.heading || 0);
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.moveTo(0, 9);
+      ctx.lineTo(-7, -7);
+      ctx.lineTo(0, -3);
+      ctx.lineTo(7, -7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#ff9f1a";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
     }
 
     // Local Player Arrow at Center

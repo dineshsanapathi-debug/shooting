@@ -339,6 +339,48 @@ export class CharacterModel {
       return;
     }
 
+    if (state === "freefall" || state === "skydive") {
+      // Skydive belly-down horizontal aerodynamic dive
+      this.pelvis.position.y = 1.0;
+      this.pelvis.rotation.x = -Math.PI / 2.3;
+      this.torso.rotation.x = -0.25;
+      this.head.rotation.x = 0.55; // Head tilted looking ahead
+
+      // Arms back and out like wings
+      this.leftArm.rotation.set(0.35, 0.3, -1.2);
+      this.rightArm.rotation.set(0.35, -0.3, 1.2);
+      this.leftForearm.rotation.x = -0.55;
+      this.rightForearm.rotation.x = -0.55;
+
+      // Legs spread & bent up at knees
+      this.leftLeg.rotation.set(0.2, 0, -0.25);
+      this.rightLeg.rotation.set(0.2, 0, 0.25);
+      this.leftCalf.rotation.x = 1.2;
+      this.rightCalf.rotation.x = 1.2;
+      return;
+    }
+
+    if (state === "parachute") {
+      // Upright hanging from parachute harness
+      this.pelvis.position.y = 1.0;
+      this.pelvis.rotation.x = 0;
+      this.torso.rotation.x = 0.08;
+
+      // Both arms raised high holding suspension lines
+      this.leftArm.rotation.set(-2.8, -0.3, 0.3);
+      this.rightArm.rotation.set(-2.8, 0.3, -0.3);
+      this.leftForearm.rotation.x = -0.3;
+      this.rightForearm.rotation.x = -0.3;
+
+      // Legs gently dangling with wind sway
+      const sway = Math.sin(this.animTime * 2.8) * 0.12;
+      this.leftLeg.rotation.set(0.25 + sway, 0, -0.08);
+      this.rightLeg.rotation.set(0.25 - sway, 0, 0.08);
+      this.leftCalf.rotation.x = 0.35;
+      this.rightCalf.rotation.x = 0.35;
+      return;
+    }
+
     if (!isGrounded) {
       // In mid-air / jumping
       this.pelvis.position.y = 1.0;
