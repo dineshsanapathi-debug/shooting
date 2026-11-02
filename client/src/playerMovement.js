@@ -234,3 +234,4 @@ export function createPlayerMovement(player, camera) {
 
   return { update, keys };
 }
+

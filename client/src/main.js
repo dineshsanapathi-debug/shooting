@@ -7,11 +7,41 @@ import "./style.css";
 // MULTIPLAYER CONNECTION
 // ===============================
 
-const socket = io(
-  window.location.port === "5173"
-    ? "http://localhost:3001"
-    : (window.location.origin.startsWith("http") ? window.location.origin : "http://localhost:3001")
-);
+const SERVER_URL = import.meta.env.DEV
+  ? "http://localhost:3001"
+  : window.location.origin;
+
+const socket = io(SERVER_URL, {
+  transports: ["websocket", "polling"],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000
+});
+
+const connectionStatus =
+  document.getElementById("connectionStatus");
+
+socket.on("connect", () => {
+  connectionStatus.textContent =
+    "Connected to online server";
+
+  connectionStatus.style.background = "green";
+});
+
+socket.on("disconnect", () => {
+  connectionStatus.textContent =
+    "Disconnected - reconnecting...";
+
+  connectionStatus.style.background = "red";
+});
+
+socket.on("connect_error", () => {
+  connectionStatus.textContent =
+    "Server connection failed";
+
+  connectionStatus.style.background = "red";
+});
 
 let myId = null;
 let myHealth = 100;

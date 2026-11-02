@@ -1,31 +1,33 @@
 const express = require("express");
 const http = require("http");
+const { Server } = require("socket.io");
 const cors = require("cors");
 const path = require("path");
-const fs = require("fs");
-
-const { Server } = require("socket.io");
 
 const app = express();
-
-app.use(cors());
-
-// Serve client dist if available
-const distPath = path.join(__dirname, "../client/dist");
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-}
-
 const server = http.createServer(app);
+
+app.use(cors({
+  origin: process.env.CLIENT_URL
+    ? [process.env.CLIENT_URL, "http://localhost:5173"]
+    : ["http://localhost:5173", "http://localhost:3001"]
+}));
+
+app.use(express.json());
+
+// Serve the built frontend
+app.use(express.static(
+  path.join(__dirname, "../client/dist")
+));
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: process.env.CLIENT_URL
+      ? [process.env.CLIENT_URL, "http://localhost:5173"]
+      : ["http://localhost:5173", "http://localhost:3001"],
     methods: ["GET", "POST"]
   }
 });
-
-const PORT = 3001;
 
 const players = {};
 
@@ -262,10 +264,8 @@ setInterval(() => {
 // SERVER START
 // ===============================
 
+const PORT = process.env.PORT || 3001;
+
 server.listen(PORT, "0.0.0.0", () => {
-
-  console.log(
-    `Battle Royale server running on port ${PORT}`
-  );
-
+  console.log(`Game server running on port ${PORT}`);
 });
