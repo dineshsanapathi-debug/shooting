@@ -138,3 +138,89 @@ button {
     display: block;
   }
 }
+
+#characterScreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,0.9);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+#characterList {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 15px;
+}
+
+.character-card {
+  width: 130px;
+  padding: 15px;
+  background: #292929;
+  border: 2px solid #777;
+  border-radius: 12px;
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.character-card:hover {
+  transform: translateY(-3px);
+  border-color: #aaa;
+}
+
+.character-card.selected {
+  border-color: #00ff88;
+  background: #1e3a29;
+  box-shadow: 0 0 14px rgba(0, 255, 136, 0.4);
+}
+
+#selectCharacter {
+  padding: 14px 30px;
+  background: #00a85a;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+#selectCharacter:hover {
+  background: #00bf66;
+}
+
+#mobileActions {
+  position: fixed;
+  right: 20px;
+  bottom: 25px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 100;
+}
+
+#mobileActions button {
+  min-width: 85px;
+  padding: 13px;
+  border-radius: 10px;
+  border: 1px solid white;
+  background: rgba(20,20,20,0.8);
+  color: white;
+  font-weight: bold;
+  touch-action: manipulation;
+}
+
+@media (min-width: 901px) {
+  #mobileActions {
+    display: none;
+  }
+}

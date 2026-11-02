@@ -37,10 +37,12 @@ const MAX_HEALTH = 100;
 // PLAYER CREATION
 // ===============================
 
-function createPlayer(id) {
+function createPlayer(id, characterId = "soldier1") {
 
   return {
     id,
+
+    characterId,
 
     x: Math.random() * 20 - 10,
     y: 0,
@@ -53,7 +55,9 @@ function createPlayer(id) {
     alive: true,
     moving: false,
     running: false,
-    jumping: false
+    jumping: false,
+    crouching: false,
+    aiming: false
   };
 }
 
@@ -69,10 +73,14 @@ io.on("connection", socket => {
   // JOIN GAME
   // =============================
 
-  socket.on("joinGame", () => {
+  socket.on("joinGame", data => {
+
+    const charId = (data && data.characterId) ? data.characterId : "soldier1";
 
     if (!players[socket.id]) {
-      players[socket.id] = createPlayer(socket.id);
+      players[socket.id] = createPlayer(socket.id, charId);
+    } else {
+      players[socket.id].characterId = charId;
     }
 
     socket.emit(
@@ -109,6 +117,17 @@ io.on("connection", socket => {
     player.moving = Boolean(data.moving);
     player.running = Boolean(data.running);
     player.jumping = Boolean(data.jumping);
+    player.crouching = Boolean(data.crouching);
+    player.aiming = Boolean(data.aiming);
+    if (data.characterId) player.characterId = data.characterId;
+  });
+
+  // =============================
+  // RELOAD
+  // =============================
+
+  socket.on("reload", () => {
+    io.emit("playerReload", { id: socket.id });
   });
 
   // =============================
