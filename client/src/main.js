@@ -8,9 +8,9 @@ import "./style.css";
 // MULTIPLAYER CONNECTION
 // ===============================
 
-const SERVER_URL = import.meta.env.DEV
-  ? "http://localhost:3001"
-  : window.location.origin;
+const SERVER_URL = window.location.origin.startsWith("http")
+  ? window.location.origin
+  : "http://localhost:3001";
 
 const socket = io(SERVER_URL, {
   transports: ["websocket", "polling"],

@@ -3,28 +3,36 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: process.env.CLIENT_URL
-    ? [process.env.CLIENT_URL, "http://localhost:5173"]
-    : ["http://localhost:5173", "http://localhost:3001"]
+  origin: "*",
+  methods: ["GET", "POST"]
 }));
 
 app.use(express.json());
 
 // Serve the built frontend
-app.use(express.static(
-  path.join(__dirname, "../client/dist")
-));
+const distPath = path.join(__dirname, "../client/dist");
+app.use(express.static(distPath));
+
+// Fallback to index.html for client-side routing
+app.use((req, res, next) => {
+  if (req.method === "GET" && !req.path.startsWith("/socket.io")) {
+    const indexPath = path.join(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+  }
+  next();
+});
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL
-      ? [process.env.CLIENT_URL, "http://localhost:5173"]
-      : ["http://localhost:5173", "http://localhost:3001"],
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
