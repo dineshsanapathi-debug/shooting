@@ -48,7 +48,10 @@ function createPlayer(id) {
 
     health: MAX_HEALTH,
 
-    alive: true
+    alive: true,
+    moving: false,
+    running: false,
+    jumping: false
   };
 }
 
@@ -86,31 +89,24 @@ io.on("connection", socket => {
   // =============================
 
   socket.on("move", data => {
-
     const player = players[socket.id];
 
     if (!player || !player.alive) return;
 
     if (
-      typeof data.x !== "number" ||
-      typeof data.z !== "number" ||
       !Number.isFinite(data.x) ||
-      !Number.isFinite(data.z)
+      !Number.isFinite(data.z) ||
+      !Number.isFinite(data.rotation)
     ) return;
 
-    player.x = Math.max(
-      -145,
-      Math.min(145, data.x)
-    );
+    player.x = Math.max(-145, Math.min(145, data.x));
+    player.y = Number.isFinite(data.y) ? data.y : 0;
+    player.z = Math.max(-145, Math.min(145, data.z));
 
-    player.z = Math.max(
-      -145,
-      Math.min(145, data.z)
-    );
-
-    if (Number.isFinite(data.rotation)) {
-      player.rotation = data.rotation;
-    }
+    player.rotation = data.rotation;
+    player.moving = Boolean(data.moving);
+    player.running = Boolean(data.running);
+    player.jumping = Boolean(data.jumping);
   });
 
   // =============================

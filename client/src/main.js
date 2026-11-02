@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { io } from "socket.io-client";
+import { createPlayerMovement } from "./playerMovement.js";
 import "./style.css";
 
 // ===============================
@@ -190,6 +191,9 @@ scene.add(player);
 // Camera position
 camera.position.set(0, 5, 8);
 
+// Movement System
+const movement = createPlayerMovement(player, camera);
+
 // ===============================
 // OTHER PLAYERS
 // ===============================
@@ -210,6 +214,10 @@ function createOtherPlayer(id) {
   mesh.position.y = 1.2;
 
   group.add(mesh);
+
+  group.userData.targetPosition = new THREE.Vector3();
+  group.userData.targetRotation = 0;
+
   scene.add(group);
 
   otherPlayers[id] = group;
@@ -224,45 +232,6 @@ function removeOtherPlayer(id) {
 }
 
 // ===============================
-// KEYBOARD CONTROLS
-// ===============================
-
-const keys = {};
-
-window.addEventListener("keydown", event => {
-  keys[event.key.toLowerCase()] = true;
-});
-
-window.addEventListener("keyup", event => {
-  keys[event.key.toLowerCase()] = false;
-});
-
-// ===============================
-// CAMERA ROTATION
-// ===============================
-
-let cameraYaw = 0;
-let cameraPitch = 0.3;
-
-document.addEventListener("mousemove", event => {
-
-  if (!gameStarted ||
-      document.pointerLockElement !== renderer.domElement) {
-    return;
-  }
-
-  cameraYaw -= event.movementX * 0.002;
-
-  cameraPitch -= event.movementY * 0.002;
-
-  cameraPitch = THREE.MathUtils.clamp(
-    cameraPitch,
-    -0.3,
-    1
-  );
-});
-
-// ===============================
 // START GAME
 // ===============================
 
@@ -274,99 +243,10 @@ document.getElementById("startButton")
     document.getElementById("startButton").style.display =
       "none";
 
-    renderer.domElement.requestPointerLock();
+    document.body.requestPointerLock();
 
     socket.emit("joinGame");
   });
-
-// ===============================
-// PLAYER MOVEMENT
-// ===============================
-
-const clock = new THREE.Clock();
-
-let moveTimer = 0;
-
-function updateMovement(delta) {
-
-  if (!gameStarted) return;
-
-  const speed = 9 * delta;
-
-  const forward = new THREE.Vector3(
-    -Math.sin(cameraYaw),
-    0,
-    -Math.cos(cameraYaw)
-  );
-
-  const right = new THREE.Vector3(
-    Math.cos(cameraYaw),
-    0,
-    -Math.sin(cameraYaw)
-  );
-
-  if (keys.w) {
-    player.position.addScaledVector(forward, speed);
-  }
-
-  if (keys.s) {
-    player.position.addScaledVector(forward, -speed);
-  }
-
-  if (keys.a) {
-    player.position.addScaledVector(right, -speed);
-  }
-
-  if (keys.d) {
-    player.position.addScaledVector(right, speed);
-  }
-
-  player.position.x = THREE.MathUtils.clamp(
-    player.position.x, -145, 145
-  );
-
-  player.position.z = THREE.MathUtils.clamp(
-    player.position.z, -145, 145
-  );
-
-  moveTimer += delta;
-
-  if (moveTimer > 0.05) {
-
-    socket.emit("move", {
-      x: player.position.x,
-      z: player.position.z,
-      rotation: player.rotation.y
-    });
-
-    moveTimer = 0;
-  }
-}
-
-// ===============================
-// CAMERA FOLLOW
-// ===============================
-
-function updateCamera() {
-
-  const distance = 8;
-
-  const offset = new THREE.Vector3(
-    Math.sin(cameraYaw) * distance,
-    4 + cameraPitch * 2,
-    Math.cos(cameraYaw) * distance
-  );
-
-  camera.position.copy(
-    player.position.clone().add(offset)
-  );
-
-  camera.lookAt(
-    player.position.x,
-    player.position.y + 1.5,
-    player.position.z
-  );
-}
 
 // ===============================
 // SHOOTING
@@ -395,10 +275,8 @@ function shoot() {
   });
 }
 
-renderer.domElement.addEventListener("click", () => {
-
-  if (gameStarted &&
-      document.pointerLockElement === renderer.domElement) {
+window.addEventListener("click", () => {
+  if (gameStarted && document.pointerLockElement) {
     shoot();
   }
 });
@@ -424,13 +302,6 @@ socket.on("playersUpdate", data => {
 
     if (item.id === myId) {
       myHealth = item.health;
-
-      player.position.set(
-        item.x,
-        0,
-        item.z
-      );
-
       continue;
     }
 
@@ -438,13 +309,14 @@ socket.on("playersUpdate", data => {
       createOtherPlayer(item.id);
     }
 
-    otherPlayers[item.id].position.set(
+    const remote = otherPlayers[item.id];
+    remote.userData.targetPosition.set(
       item.x,
-      0,
+      item.y || 0,
       item.z
     );
 
-    otherPlayers[item.id].rotation.y =
+    remote.userData.targetRotation =
       item.rotation || 0;
   }
 
@@ -502,6 +374,9 @@ socket.on("respawn", data => {
 // GAME LOOP
 // ===============================
 
+const clock = new THREE.Clock();
+let networkTimer = 0;
+
 function animate() {
 
   requestAnimationFrame(animate);
@@ -511,10 +386,43 @@ function animate() {
     0.05
   );
 
-  updateMovement(delta);
+  if (gameStarted && myHealth > 0) {
+    const movementState = movement.update(delta);
 
-  if (gameStarted) {
-    updateCamera();
+    networkTimer += delta;
+
+    if (networkTimer >= 0.05) {
+      socket.emit("move", {
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z,
+        rotation: player.rotation.y,
+        moving: movementState.moving,
+        running: movementState.running,
+        jumping: movementState.jumping
+      });
+
+      networkTimer = 0;
+    }
+  }
+
+  for (const remote of Object.values(otherPlayers)) {
+    remote.position.lerp(
+      remote.userData.targetPosition,
+      Math.min(1, delta * 12)
+    );
+
+    let angle =
+      remote.userData.targetRotation -
+      remote.rotation.y;
+
+    angle = Math.atan2(
+      Math.sin(angle),
+      Math.cos(angle)
+    );
+
+    remote.rotation.y +=
+      angle * Math.min(1, delta * 12);
   }
 
   renderer.render(scene, camera);
