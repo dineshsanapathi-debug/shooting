@@ -1,0 +1,12 @@
+{
+  "name": "freefire-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "3D Multiplayer Battle Royale Shooting Game inspired by Free Fire",
+  "scripts": {
+    "build": "cd client && npm run build",
+    "start": "node server/server.js",
+    "client": "cd client && npm run dev",
+    "server": "cd server && npm start"
+  }
+}

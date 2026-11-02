@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>🔥 Free Fire - Bharat 3D Battle Royale</title>
+  <link rel="stylesheet" href="./src/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Teko:wght@500;700&family=Rajdhani:wght@600;700;800&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- 3D WebGL Canvas Container -->
+  <div id="gameContainer"></div>
+
+  <!-- LOBBY & WARM-UP SCREEN -->
+  <div id="lobbyScreen" class="overlay-screen">
+    <div class="lobby-backdrop"></div>
+    <div class="lobby-header">
+      <div class="lobby-brand">
+        <span class="ff-logo-text">FREE FIRE</span>
+        <span class="badge-edition">BHARAT 3D</span>
+      </div>
+      <div class="lobby-status-tag" id="networkStatusBadge">
+        <span class="dot-live"></span> <span id="networkStatusText">CONNECTED TO ASIA-1</span>
+      </div>
+    </div>
+
+    <div class="lobby-content">
+      <!-- Left: Operator Selection Card -->
+      <div class="lobby-card character-selector-card">
+        <h3 class="card-title">SELECT OPERATOR</h3>
+        <div class="character-grid">
+          <div class="char-chip active" data-char="hayato">
+            <div class="char-icon">🗡️</div>
+            <div class="char-meta">
+              <strong>HAYATO</strong>
+              <small>Bushido Armor</small>
+            </div>
+          </div>
+          <div class="char-chip" data-char="alok">
+            <div class="char-icon">🎧</div>
+            <div class="char-meta">
+              <strong>ALOK</strong>
+              <small>Drop The Beat</small>
+            </div>
+          </div>
+          <div class="char-chip" data-char="kelly">
+            <div class="char-icon">⚡</div>
+            <div class="char-meta">
+              <strong>KELLY</strong>
+              <small>Deadly Velocity</small>
+            </div>
+          </div>
+          <div class="char-chip" data-char="chrono">
+            <div class="char-icon">🛡️</div>
+            <div class="char-meta">
+              <strong>CHRONO</strong>
+              <small>Time-Turner</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="char-info-box">
+          <h4 id="selectedCharName">HAYATO</h4>
+          <p id="selectedCharDesc">Legendary samurai warrior. Passive: When maximum HP drops, armor penetration increases dramatically.</p>
+        </div>
+      </div>
+
+      <!-- Center: Big Match Start / Warmup Lobby -->
+      <div class="lobby-card match-card">
+        <div class="map-badge">MAP: BHARAT ISLAND (800m × 800m)</div>
+        <div class="lobby-timer-wrap">
+          <div class="countdown-label">MATCH COUNTDOWN</div>
+          <div id="lobbyCountdownBig" class="countdown-display">60</div>
+          <div class="countdown-sub">WARM-UP LOBBY IN PROGRESS</div>
+        </div>
+        <button id="btnStartGame" class="btn-booyah">
+          <span class="btn-text">ENTER MATCH</span>
+          <span class="btn-shine"></span>
+        </button>
+      </div>
+
+      <!-- Right: Controls Guide -->
+      <div class="lobby-card guide-card">
+        <h3 class="card-title">TACTICAL CONTROLS</h3>
+        <div class="control-row"><span class="k-key">W A S D</span> Move Character</div>
+        <div class="control-row"><span class="k-key">SHIFT</span> Sprint (Fast Run)</div>
+        <div class="control-row"><span class="k-key">SPACE</span> Jump / Deploy Chute</div>
+        <div class="control-row"><span class="k-key">C</span> Crouch / Stance</div>
+        <div class="control-row"><span class="k-key">LEFT CLICK</span> Fire Weapon</div>
+        <div class="control-row"><span class="k-key">RIGHT CLICK</span> ADS Sniper Scope</div>
+        <div class="control-row"><span class="k-key">R</span> Reload Magazine</div>
+        <div class="control-row"><span class="k-key">1 - 5</span> Switch Weapons</div>
+        <div class="control-row"><span class="k-key">E</span> Enter Buggy / Loot</div>
+      </div>
+    </div>
+
+    <div class="lobby-footer">
+      <span>BATTLE ROYALE 50 PLAYERS • THREE.JS WEBGL • POWERED BY SOCKET.IO</span>
+    </div>
+  </div>
+
+  <!-- IN-GAME TACTICAL HUD -->
+  <div id="inGameHUD" style="display: none;">
+    <!-- Top Compass Strip -->
+    <div id="compassContainer">
+      <div id="compassStrip">
+        <span>N</span> • • • <span>15</span> • • • <span>30</span> • • • <span>NE</span> • • • <span>60</span> • • • <span>E</span> • • • <span>120</span> • • • <span>SE</span> • • • <span>S</span> • • • <span>SW</span> • • • <span>W</span> • • • <span>NW</span>
+      </div>
+      <div id="compassHeadingText">0°</div>
+    </div>
+
+    <!-- Match Status Bar -->
+    <div id="topStatsBar">
+      <div class="stat-badge"><span class="badge-icon">👥</span> ALIVE: <strong id="aliveCount">50</strong></div>
+      <div class="stat-badge kill-badge"><span class="badge-icon">💀</span> KILLS: <strong id="killsCount">0</strong></div>
+      <div id="zoneBanner" class="zone-waiting">
+        <span id="zoneTimerText">⚡ SAFE ZONE SHRINKING IN: 30s</span>
+      </div>
+    </div>
+
+    <!-- Minimap Radar -->
+    <div id="minimapContainer">
+      <canvas id="minimapCanvas" width="140" height="140"></canvas>
+      <div class="radar-scanline"></div>
+    </div>
+
+    <!-- Kill Feed List -->
+    <div id="killFeedList"></div>
+
+    <!-- Center Reticle / Crosshair -->
+    <div id="crosshair">
+      <div class="ch-bar ch-top"></div>
+      <div class="ch-bar ch-bottom"></div>
+      <div class="ch-bar ch-left"></div>
+      <div class="ch-bar ch-right"></div>
+      <div class="ch-dot"></div>
+      <div id="hitmarker"></div>
+    </div>
+
+    <!-- Red Damage Flash Screen -->
+    <div id="damageIndicator"></div>
+
+    <!-- Sniper Scope Overlay (Only active during AWM ADS) -->
+    <div id="sniperScopeOverlay">
+      <div class="scope-vignette"></div>
+      <div class="scope-cross-h"></div>
+      <div class="scope-cross-v"></div>
+      <div class="scope-mil-dots"></div>
+    </div>
+
+    <!-- Interaction Prompt (e.g. Enter Buggy) -->
+    <div id="interactionPrompt"></div>
+
+    <!-- Airplane Flight & Parachute Jump Overlay -->
+    <div id="flightOverlay" style="display: none;">
+      <div id="flightHeader">
+        <span class="flight-icon">✈️</span>
+        <span id="flightHeaderText">AIRPLANE FLIGHT ACROSS BHARAT</span>
+      </div>
+      <div id="flightTelemetry">
+        <div class="telemetry-box">
+          <span class="tel-label">ALTITUDE</span>
+          <span class="tel-val" id="flightAltitude">160 m</span>
+        </div>
+        <div class="telemetry-box">
+          <span class="tel-label">AIR SPEED</span>
+          <span class="tel-val" id="flightSpeed">220 km/h</span>
+        </div>
+        <div class="telemetry-box">
+          <span class="tel-label">FLIGHT PATH</span>
+          <div class="flight-progress-bar"><div id="flightProgressBarFill"></div></div>
+        </div>
+      </div>
+      <button id="btnFlightJump" class="btn-jump-plane">
+        <span class="jump-icon">🪂</span>
+        <span class="jump-title">JUMP FROM PLANE</span>
+        <span class="jump-hotkey">[PRESS SPACE]</span>
+      </button>
+    </div>
+
+    <!-- Parachute Altitude Gauge (During Skydiving / Gliding) -->
+    <div id="chuteGaugeOverlay" style="display: none;">
+      <div class="gauge-title" id="chuteGaugeStatus">SKYDIVING FREEFALL</div>
+      <div class="alt-meter">
+        <div id="altMeterFill"></div>
+      </div>
+      <div class="gauge-val" id="chuteGaugeAlt">120 m</div>
+      <div class="gauge-tip" id="chuteGaugeTip">AUTO DEPLOYS AT 38m • [SPACE] TO OPEN NOW</div>
+    </div>
+
+    <!-- Landing Notice Banner -->
+    <div id="landingBanner" style="display: none;">
+      <span class="land-icon">⚡</span>
+      <span class="land-text">TOUCHDOWN • RECOVERING STANCE...</span>
+    </div>
+
+    <!-- Vital Bars (Health & Armor) -->
+    <div id="vitalBarsContainer">
+      <div class="bar-row">
+        <span class="bar-label">ARM</span>
+        <div class="bar-track">
+          <div id="armorBarFill"></div>
+        </div>
+        <span id="armorText" class="bar-num">0/100</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">HP</span>
+        <div class="bar-track hp-track">
+          <div id="hpBarFill"></div>
+        </div>
+        <span id="hpText" class="bar-num">100/100</span>
+      </div>
+    </div>
+
+    <!-- Weapons Hotbar -->
+    <div id="weaponHotbar">
+      <div class="weapon-slot active" data-weapon="ak47" id="slotPrimary">
+        <span class="slot-num">1</span>
+        <span class="slot-name">AK-47</span>
+        <span class="slot-ammo">30/90</span>
+      </div>
+      <div class="weapon-slot" data-weapon="shotgun" id="slotSecondary">
+        <span class="slot-num">2</span>
+        <span class="slot-name">M1014</span>
+        <span class="slot-ammo">6/24</span>
+      </div>
+      <div class="weapon-slot" data-weapon="sniper" id="slotSniper">
+        <span class="slot-num">3</span>
+        <span class="slot-name">AWM</span>
+        <span class="slot-ammo">5/15</span>
+      </div>
+      <div class="weapon-slot" data-weapon="pistol" id="slotPistol">
+        <span class="slot-num">4</span>
+        <span class="slot-name">DEAGLE</span>
+        <span class="slot-ammo">7/28</span>
+      </div>
+      <div class="weapon-slot" data-weapon="fists" id="slotFists">
+        <span class="slot-num">5</span>
+        <span class="slot-name">FISTS</span>
+        <span class="slot-ammo">∞</span>
+      </div>
+    </div>
+
+    <!-- Ammo & Quick Health Counter -->
+    <div id="ammoContainer">
+      <div id="currentWeaponName">AK-47</div>
+      <div id="currentAmmoCount">30 / 90</div>
+      <button id="medkitQuickBtn">
+        <span class="med-icon">💉</span>
+        <span id="medkitCountText">MEDKIT × 2</span>
+      </button>
+    </div>
+
+    <!-- Mobile Virtual Controls -->
+    <div id="mobileControlsContainer">
+      <!-- Left Movement Joystick -->
+      <div id="touchJoystick">
+        <div id="touchKnob"></div>
+      </div>
+
+      <!-- Right Touch Action Buttons -->
+      <div id="mobileActionButtons">
+        <div class="action-row">
+          <button id="btnSprint" class="m-btn">SPRINT</button>
+          <button id="btnCrouch" class="m-btn">CROUCH</button>
+        </div>
+        <div class="action-row">
+          <button id="btnReload" class="m-btn">RELOAD</button>
+          <button id="btnAim" class="m-btn">AIM</button>
+        </div>
+        <div class="action-row">
+          <button id="btnJump" class="m-btn m-jump">JUMP</button>
+          <button id="btnShoot" class="m-btn m-shoot">FIRE</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VICTORY SCREEN (BOOYAH!) -->
+  <div id="victoryScreen" class="overlay-screen" style="display: none;">
+    <div class="victory-card">
+      <div class="booyah-banner">BOOYAH!</div>
+      <div class="victory-title">#1 BATTLE ROYALE CHAMPION</div>
+      <div class="match-summary-stats">
+        <div class="m-stat"><span class="lbl">TOTAL ELIMINATIONS</span><strong id="finalKills">0</strong></div>
+        <div class="m-stat"><span class="lbl">DAMAGE DEALT</span><strong id="finalDamage">0</strong></div>
+        <div class="m-stat"><span class="lbl">SURVIVAL TIME</span><strong id="finalSurvival">0s</strong></div>
+      </div>
+      <button id="btnRestartVictory" class="btn-booyah">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <!-- DEFEAT / SPECTATE SCREEN -->
+  <div id="defeatScreen" class="overlay-screen" style="display: none;">
+    <div class="defeat-card">
+      <div class="defeat-banner">ELIMINATED</div>
+      <div class="defeat-title" id="defeatSubtitle">BETTER LUCK NEXT MATCH</div>
+      <button id="btnRestartDefeat" class="btn-booyah">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <!-- Main JavaScript App Entry -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
