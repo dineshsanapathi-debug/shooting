@@ -243,3 +243,4 @@ function createRiggedFallback(character) {
     }
   };
 }
+
