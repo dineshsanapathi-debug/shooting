@@ -46,14 +46,15 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Fallback route: Send index.html if dist exists
-app.get('*', (req, res, next) => {
-  const indexPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    next();
+// Fallback middleware: Send index.html if dist exists
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
   }
+  next();
 });
 
 // 3. MATCH STATE & SYNCHRONIZATION
