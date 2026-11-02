@@ -893,7 +893,23 @@ io.on("connection", (socket) => {
     io.emit("parachute_opened", { playerId: socket.id });
   });
 
-  // Player lands on ground
+  // Player initiates Free Fire landing sequence (impact absorption)
+  socket.on("player_landing", () => {
+    const player = defaultMatch.players.get(socket.id);
+    if (!player) return;
+    player.flightState = "LANDING";
+    player.chuteOpen = false;
+    io.emit("player_landing", { playerId: socket.id });
+
+    setTimeout(() => {
+      if (player && player.flightState === "LANDING") {
+        player.flightState = "LANDED";
+        io.emit("player_landed", { playerId: socket.id });
+      }
+    }, 1500);
+  });
+
+  // Player completes landing on ground
   socket.on("player_landed", () => {
     const player = defaultMatch.players.get(socket.id);
     if (!player) return;

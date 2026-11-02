@@ -4,6 +4,7 @@ import "./style.css";
 
 import { IslandMap } from "./map.js";
 import { CharacterModel } from "./character.js";
+import { createAnimatedCharacter, createRiggedCharacter } from "./characterAnimations.js";
 import { WEAPON_TYPES, createWeaponMesh, FXManager } from "./weapons.js";
 import { SafeZoneMesh } from "./zone.js";
 import { VehicleManager } from "./vehicle.js";
@@ -76,6 +77,8 @@ let myId = null;
 let playerName = "Soldier_1";
 let playerCharacterSkin = "kelly";
 let localPlayerMesh = null;
+let myCharacter = null;
+let lastCharacterState = "warmup";
 
 const playerState = {
   x: -330,
@@ -96,7 +99,7 @@ const playerState = {
   isFiring: false,
   isReloading: false,
   inVehicle: null,
-  // Flight & Parachute States: "LANDED" | "IN_PLANE" | "FREEFALL" | "PARACHUTE"
+  // Flight & Parachute States: "LANDED" | "IN_PLANE" | "FREEFALL" | "PARACHUTE" | "LANDING"
   flightState: "LANDED",
   currentWeapon: "fist",
   ammo: {
@@ -114,6 +117,55 @@ const remotePlayers = new Map();
 const remoteParachutes = new Map();
 let currentMatchData = null;
 let lastWarmupSecond = 60;
+
+// Character Animation Controller
+function updateCharacterAnimation(state) {
+  if (!myCharacter || state === lastCharacterState) return;
+  lastCharacterState = state;
+
+  switch (state) {
+    case "plane":
+      myCharacter.play("idle", 0.2);
+      break;
+
+    case "falling":
+      myCharacter.play("skydive", 0.2);
+      break;
+
+    case "parachute":
+      myCharacter.play("parachute", 0.2);
+      break;
+
+    case "landing":
+      myCharacter.play("landing", 0.12);
+      break;
+
+    case "landed":
+      // Free Fire Landing Sequence: crouch to absorb shock, then stand tall in ready stance with weapon
+      myCharacter.play("crouch", 0.15);
+      setTimeout(() => {
+        if (myCharacter && lastCharacterState === "landed") {
+          myCharacter.play("idle", 0.25);
+        }
+      }, 1000);
+      break;
+
+    case "running":
+      myCharacter.play("run", 0.15);
+      break;
+
+    case "crouch":
+      myCharacter.play("crouch", 0.15);
+      break;
+
+    case "shoot":
+      myCharacter.play("shoot", 0.05);
+      break;
+
+    default:
+      myCharacter.play("idle", 0.2);
+  }
+}
 
 // ==========================================
 // 5. USER INTERFACE
@@ -141,23 +193,49 @@ const ui = new UIManager({
   }
 });
 
-function updateLocalCharacterMesh() {
-  if (localPlayerMesh) {
-    scene.remove(localPlayerMesh.group);
-  }
-  localPlayerMesh = new CharacterModel(playerCharacterSkin, false);
-  scene.add(localPlayerMesh.group);
-  attachWeaponMesh(localPlayerMesh, playerState.currentWeapon);
-}
-
 function attachWeaponMesh(charModel, weaponId) {
-  while (charModel.weaponSocket.children.length > 0) {
-    charModel.weaponSocket.remove(charModel.weaponSocket.children[0]);
+  const socket = charModel.weaponSocket || (charModel.model && charModel.model.getObjectByName("weaponSocket"));
+  if (!socket) return;
+  while (socket.children.length > 0) {
+    socket.remove(socket.children[0]);
   }
   if (weaponId !== "fist") {
     const gun = createWeaponMesh(weaponId);
-    charModel.weaponSocket.add(gun);
+    socket.add(gun);
   }
+}
+
+async function loadMyCharacter(skin = playerCharacterSkin) {
+  try {
+    const newChar = await createAnimatedCharacter(skin, false);
+    if (myCharacter && myCharacter.model) {
+      scene.remove(myCharacter.model);
+      myCharacter.dispose();
+    }
+    myCharacter = newChar;
+    scene.add(myCharacter.model);
+    localPlayerMesh = myCharacter;
+    attachWeaponMesh(myCharacter, playerState.currentWeapon);
+    myCharacter.play("idle", 0.1);
+  } catch (err) {
+    console.warn("Falling back to rigged character:", err);
+  }
+}
+
+function updateLocalCharacterMesh() {
+  if (myCharacter && myCharacter.model) {
+    scene.remove(myCharacter.model);
+    myCharacter.dispose();
+  }
+  // Initialize immediately with rigged mesh
+  myCharacter = createRiggedCharacter(playerCharacterSkin, false);
+  scene.add(myCharacter.model);
+  localPlayerMesh = myCharacter;
+  attachWeaponMesh(myCharacter, playerState.currentWeapon);
+  myCharacter.play("idle", 0.1);
+
+  // Asynchronously attempt to load GLTF character model if present
+  loadMyCharacter(playerCharacterSkin);
 }
 
 // Initial Local Character Mesh
@@ -378,10 +456,11 @@ document.querySelectorAll(".weapon-slot").forEach(slot => {
 // ==========================================
 function handleFlightAction() {
   if (playerState.flightState === "IN_PLANE") {
-    // Eject from plane!
+    // Eject from plane into Freefall
     playerState.flightState = "FREEFALL";
     sounds.playShoot("deagle", true); // quick release click
     sounds.startWindRush();
+    updateCharacterAnimation("falling");
     socket.emit("jump_from_plane");
   } else if (playerState.flightState === "FREEFALL") {
     // Deploy parachute
@@ -389,6 +468,7 @@ function handleFlightAction() {
     sounds.stopWindRush();
     sounds.playParachuteOpen();
     localParachute.setVisible(true);
+    updateCharacterAnimation("parachute");
     socket.emit("open_parachute");
   }
 }
@@ -582,8 +662,8 @@ socket.on("game_state", (state) => {
 
     let remoteChar = remotePlayers.get(p.id);
     if (!remoteChar) {
-      remoteChar = new CharacterModel(p.character || "kelly", true);
-      scene.add(remoteChar.group);
+      remoteChar = createRiggedCharacter(p.character || "kelly", true);
+      scene.add(remoteChar.model);
       attachWeaponMesh(remoteChar, p.currentWeapon || "ak47");
       remotePlayers.set(p.id, remoteChar);
     }
@@ -597,39 +677,50 @@ socket.on("game_state", (state) => {
 
     // Hide remote player while inside plane
     if (p.flightState === "IN_PLANE") {
-      remoteChar.group.visible = false;
+      remoteChar.model.visible = false;
       rChute.setVisible(false);
       continue;
     }
 
-    remoteChar.group.visible = p.alive;
+    remoteChar.model.visible = p.alive;
 
     // Interpolate remote player position
-    remoteChar.group.position.x = THREE.MathUtils.lerp(remoteChar.group.position.x, p.x, 0.35);
-    remoteChar.group.position.y = THREE.MathUtils.lerp(remoteChar.group.position.y, p.y, 0.35);
-    remoteChar.group.position.z = THREE.MathUtils.lerp(remoteChar.group.position.z, p.z, 0.35);
-    remoteChar.group.rotation.y = THREE.MathUtils.lerp(remoteChar.group.rotation.y, p.yaw, 0.35);
+    remoteChar.model.position.x = THREE.MathUtils.lerp(remoteChar.model.position.x, p.x, 0.35);
+    remoteChar.model.position.y = THREE.MathUtils.lerp(remoteChar.model.position.y, p.y, 0.35);
+    remoteChar.model.position.z = THREE.MathUtils.lerp(remoteChar.model.position.z, p.z, 0.35);
+    remoteChar.model.rotation.y = THREE.MathUtils.lerp(remoteChar.model.rotation.y, p.yaw, 0.35);
 
-    // Update remote animation & parachute
+    // Update remote character landing & flight animations
     if (p.flightState === "PARACHUTE") {
-      remoteChar.updateAnimation(0.04, "parachute", 0, false, 0, false);
-      rChute.attachTo(remoteChar.group.position, p.yaw, 0, 0);
+      remoteChar.play("parachute", 0.2);
+      rChute.attachTo(remoteChar.model.position, p.yaw, 0, 0);
       rChute.setVisible(true);
     } else if (p.flightState === "FREEFALL") {
-      remoteChar.updateAnimation(0.04, "freefall", 0, false, 0, false);
+      remoteChar.play("skydive", 0.2);
+      rChute.setVisible(false);
+    } else if (p.flightState === "LANDING") {
+      remoteChar.play("landing", 0.12);
       rChute.setVisible(false);
     } else {
       rChute.setVisible(false);
       const remoteSpeed = Math.hypot(p.vx || 0, p.vz || 0);
-      const animState = !p.alive ? "death" : p.inVehicle ? "drive" : p.isCrouching ? "crouch" : remoteSpeed > 6 ? "run" : "idle";
-      remoteChar.updateAnimation(0.04, animState, remoteSpeed, p.isAiming, p.pitch || 0, true);
+      if (!p.alive) {
+        remoteChar.play("idle", 0.2);
+      } else if (p.isCrouching) {
+        remoteChar.play("crouch", 0.15);
+      } else if (remoteSpeed > 2.0) {
+        remoteChar.play("run", 0.15);
+      } else {
+        remoteChar.play("idle", 0.2);
+      }
     }
   }
 
   // Remove disconnected entities
   for (const [id, rChar] of remotePlayers.entries()) {
     if (!currentIds.has(id)) {
-      scene.remove(rChar.group);
+      scene.remove(rChar.model || rChar.group);
+      if (rChar.dispose) rChar.dispose();
       remotePlayers.delete(id);
       const rC = remoteParachutes.get(id);
       if (rC) {
@@ -708,13 +799,15 @@ let footstepTimer = 0;
 
 function updatePlayerMovement(delta) {
   if (playerState.health <= 0) {
-    localPlayerMesh.updateAnimation(delta, "death", 0, false, 0, true);
+    if (myCharacter && myCharacter.model) {
+      myCharacter.play("crouch", 0.2);
+    }
     return;
   }
 
   // 1. IN AIRPLANE FLIGHT STATE
   if (playerState.flightState === "IN_PLANE") {
-    localPlayerMesh.group.visible = false;
+    if (myCharacter && myCharacter.model) myCharacter.model.visible = false;
     localParachute.setVisible(false);
 
     if (currentMatchData && currentMatchData.plane) {
@@ -726,7 +819,7 @@ function updatePlayerMovement(delta) {
     return;
   }
 
-  localPlayerMesh.group.visible = true;
+  if (myCharacter && myCharacter.model) myCharacter.model.visible = true;
 
   // 2. FREEFALL SKYDIVE STATE
   if (playerState.flightState === "FREEFALL") {
@@ -747,9 +840,11 @@ function updatePlayerMovement(delta) {
     playerState.x += moveX;
     playerState.z += moveZ;
 
-    localPlayerMesh.group.position.set(playerState.x, playerState.y, playerState.z);
-    localPlayerMesh.group.rotation.y = playerState.yaw;
-    localPlayerMesh.updateAnimation(delta, "freefall", 0, false, 0, false);
+    if (myCharacter && myCharacter.model) {
+      myCharacter.model.position.set(playerState.x, playerState.y, playerState.z);
+      myCharacter.model.rotation.y = playerState.yaw;
+    }
+    updateCharacterAnimation("falling");
 
     sounds.updateWindSpeed(Math.abs(playerState.vy) / 26);
 
@@ -779,30 +874,56 @@ function updatePlayerMovement(delta) {
     playerState.x += moveX;
     playerState.z += moveZ;
 
-    localPlayerMesh.group.position.set(playerState.x, playerState.y, playerState.z);
-    localPlayerMesh.group.rotation.y = playerState.yaw;
-    localPlayerMesh.updateAnimation(delta, "parachute", 0, false, 0, false);
+    if (myCharacter && myCharacter.model) {
+      myCharacter.model.position.set(playerState.x, playerState.y, playerState.z);
+      myCharacter.model.rotation.y = playerState.yaw;
+    }
+    updateCharacterAnimation("parachute");
 
     // Attach parachute canopy model
     localParachute.attachTo(playerState, playerState.yaw, steerS, steerF);
     localParachute.setVisible(true);
 
-    // Touchdown ground detection
+    // Touchdown ground detection: Trigger Free Fire Landing Sequence
     const groundY = islandMap.getHeight(playerState.x, playerState.z);
     if (playerState.y <= groundY + 0.3) {
       playerState.y = groundY;
       playerState.vy = 0;
-      playerState.flightState = "LANDED";
+      playerState.flightState = "LANDING";
       localParachute.setVisible(false);
+      sounds.stopWindRush();
       sounds.playLandingThump();
-      socket.emit("player_landed");
+      updateCharacterAnimation("landing");
+      socket.emit("player_landing");
+
+      // After absorbing impact, crouch and stand up in combat ready stance with weapon
+      setTimeout(() => {
+        if (playerState.flightState === "LANDING") {
+          playerState.flightState = "LANDED";
+          updateCharacterAnimation("landed");
+          socket.emit("player_landed");
+        }
+      }, 1200);
     }
 
     sendMovement(delta);
     return;
   }
 
-  // 4. NORMAL BOOTS-ON-THE-GROUND COMBAT & VEHICLE MOVEMENT
+  // 4. LANDING IMPACT RECOVERY (Absorbing impact / crouching)
+  if (playerState.flightState === "LANDING") {
+    localParachute.setVisible(false);
+    playerState.vy = 0;
+    playerState.y = islandMap.getHeight(playerState.x, playerState.z);
+    if (myCharacter && myCharacter.model) {
+      myCharacter.model.position.set(playerState.x, playerState.y, playerState.z);
+      myCharacter.model.rotation.y = playerState.yaw;
+    }
+    sendMovement(delta);
+    return;
+  }
+
+  // 5. NORMAL BOOTS-ON-THE-GROUND COMBAT & VEHICLE MOVEMENT
   localParachute.setVisible(false);
 
   if (playerState.inVehicle) {
@@ -823,9 +944,11 @@ function updatePlayerMovement(delta) {
         playerState.yaw = vData.rot;
       });
 
-      localPlayerMesh.group.position.set(v.position.x, v.position.y + 0.3, v.position.z);
-      localPlayerMesh.group.rotation.y = v.rotation.y;
-      localPlayerMesh.updateAnimation(delta, "drive", 0, false, 0, true);
+      if (myCharacter && myCharacter.model) {
+        myCharacter.model.position.set(v.position.x, v.position.y + 0.3, v.position.z);
+        myCharacter.model.rotation.y = v.rotation.y;
+      }
+      updateCharacterAnimation("crouch");
     }
     return;
   } else {
@@ -891,15 +1014,16 @@ function updatePlayerMovement(delta) {
     playerState.y = groundAltitude;
   }
 
-  localPlayerMesh.group.position.set(playerState.x, playerState.y, playerState.z);
-  localPlayerMesh.group.rotation.y = playerState.yaw;
+  if (myCharacter && myCharacter.model) {
+    myCharacter.model.position.set(playerState.x, playerState.y, playerState.z);
+    myCharacter.model.rotation.y = playerState.yaw;
+  }
 
   let animState = "idle";
   if (playerState.isCrouching) animState = "crouch";
-  else if (playerState.isSprinting) animState = "sprint";
-  else if (moveLen > 0.05) animState = "run";
+  else if (moveLen > 0.05) animState = "running";
 
-  localPlayerMesh.updateAnimation(delta, animState, speed, playerState.isAiming, playerState.pitch, playerState.isGrounded);
+  updateCharacterAnimation(animState);
 
   if (playerState.isFiring) {
     const wConfig = WEAPON_TYPES[playerState.currentWeapon];
@@ -1062,6 +1186,14 @@ function animate() {
   islandMap.update(delta);
   lootManager.update(delta);
   fxManager.update(delta);
+
+  // Update AnimationMixer for local and remote characters
+  if (myCharacter && myCharacter.update) {
+    myCharacter.update(delta);
+  }
+  for (const rChar of remotePlayers.values()) {
+    if (rChar.update) rChar.update(delta);
+  }
 
   updatePlayerMovement(delta);
   updateCamera(delta);

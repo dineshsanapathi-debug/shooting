@@ -292,3 +292,4 @@ export class ParachuteModel {
     this.group.visible = visible;
   }
 }
+
