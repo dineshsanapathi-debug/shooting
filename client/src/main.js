@@ -413,3 +413,4 @@ class GameApp {
 window.addEventListener('DOMContentLoaded', () => {
   new GameApp();
 });
+

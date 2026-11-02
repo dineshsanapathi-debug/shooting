@@ -359,3 +359,4 @@ export class Player {
     if (armText) armText.textContent = `${Math.floor(this.armor)}/${this.maxArmor}`;
   }
 }
+

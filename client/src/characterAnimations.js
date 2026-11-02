@@ -368,3 +368,4 @@ export function createRiggedCharacter(characterId = 'hayato') {
     }
   };
 }
+

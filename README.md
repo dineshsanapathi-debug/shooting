@@ -116,3 +116,4 @@ Open `http://localhost:5173` in your browser.
 | Reload | `R` | `RELOAD` Button | Reload magazine |
 | Switch Weapon | `1`, `2`, `3`, `4`, `5` | Hotbar Slots | Select Rifle / Shotgun / Sniper / Pistol / Fists |
 | Interact | `E` | Prompt Tap | Enter / exit military buggy |
+

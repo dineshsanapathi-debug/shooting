@@ -123,3 +123,4 @@ export class MultiplayerManager {
     return 1 + Array.from(this.remotePlayers.values()).filter((p) => p.alive).length;
   }
 }
+

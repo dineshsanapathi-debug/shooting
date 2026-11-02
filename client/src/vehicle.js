@@ -93,3 +93,4 @@ export function createMilitaryBuggy(scene, position = new THREE.Vector3(20, 0.8,
     }
   };
 }
+
