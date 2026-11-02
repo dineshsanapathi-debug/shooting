@@ -1,142 +1,275 @@
-// ====================================================================
-// FREE FIRE BHARAT 3D - GAME BACKEND SERVER
-// Express 5 + Socket.IO: Static Client Hosting, 60s Countdown, Sync & AI
-// ====================================================================
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
 
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
+const { Server } = require("socket.io");
 
 const app = express();
+
+app.use(cors());
+
+// Serve client dist if available
+const distPath = path.join(__dirname, "../client/dist");
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: "*",
+    methods: ["GET", "POST"]
   }
 });
 
-app.use(cors());
-app.use(express.json());
+const PORT = 3001;
 
-// 1. SERVE FRONTEND CLIENT DIRECTLY AT ROOT
-// This ensures visiting http://localhost:3001 displays the 3D Battle Royale game!
-const distPath = path.join(__dirname, '../client/dist');
-const clientPublicPath = path.join(__dirname, '../client/public');
+const players = {};
 
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-} else if (fs.existsSync(clientPublicPath)) {
-  app.use(express.static(clientPublicPath));
+const MAX_HEALTH = 100;
+
+// ===============================
+// PLAYER CREATION
+// ===============================
+
+function createPlayer(id) {
+
+  return {
+    id,
+
+    x: Math.random() * 20 - 10,
+    y: 0,
+    z: Math.random() * 20 - 10,
+
+    rotation: 0,
+
+    health: MAX_HEALTH,
+
+    alive: true
+  };
 }
 
-// 2. API HEALTH & STATUS ENDPOINT (Dedicated to /api/status so it never shadows the web client)
-app.get('/api/status', (req, res) => {
-  res.json({
-    status: 'ok',
-    game: 'Free Fire Style 3D Battle Royale Server',
-    playersConnected: players.size,
-    state: matchState,
-    countdown: lobbyCountdown,
-    alivePlayers: Math.max(1, players.size)
+// ===============================
+// CONNECTION
+// ===============================
+
+io.on("connection", socket => {
+
+  console.log("Player connected:", socket.id);
+
+  // =============================
+  // JOIN GAME
+  // =============================
+
+  socket.on("joinGame", () => {
+
+    if (!players[socket.id]) {
+      players[socket.id] = createPlayer(socket.id);
+    }
+
+    socket.emit(
+      "playersUpdate",
+      Object.values(players)
+    );
+
+    io.emit(
+      "playersUpdate",
+      Object.values(players)
+    );
+  });
+
+  // =============================
+  // MOVEMENT
+  // =============================
+
+  socket.on("move", data => {
+
+    const player = players[socket.id];
+
+    if (!player || !player.alive) return;
+
+    if (
+      typeof data.x !== "number" ||
+      typeof data.z !== "number" ||
+      !Number.isFinite(data.x) ||
+      !Number.isFinite(data.z)
+    ) return;
+
+    player.x = Math.max(
+      -145,
+      Math.min(145, data.x)
+    );
+
+    player.z = Math.max(
+      -145,
+      Math.min(145, data.z)
+    );
+
+    if (Number.isFinite(data.rotation)) {
+      player.rotation = data.rotation;
+    }
+  });
+
+  // =============================
+  // SHOOTING
+  // =============================
+
+  socket.on("shoot", data => {
+
+    const shooter = players[socket.id];
+
+    if (!shooter || !shooter.alive) return;
+
+    if (
+      !data ||
+      !data.origin ||
+      !data.direction
+    ) return;
+
+    const origin = data.origin;
+    const direction = data.direction;
+
+    const values = [
+      origin.x,
+      origin.y,
+      origin.z,
+      direction.x,
+      direction.y,
+      direction.z
+    ];
+
+    if (!values.every(Number.isFinite)) return;
+
+    const length = Math.hypot(
+      direction.x,
+      direction.y,
+      direction.z
+    );
+
+    if (length < 0.9 || length > 1.1) return;
+
+    // Basic server-side directional hit check.
+    // This is a prototype, not production anti-cheat.
+
+    for (const target of Object.values(players)) {
+
+      if (
+        target.id === socket.id ||
+        !target.alive
+      ) continue;
+
+      const targetX = target.x;
+      const targetY = 1.2;
+      const targetZ = target.z;
+
+      const dx = targetX - origin.x;
+      const dy = targetY - origin.y;
+      const dz = targetZ - origin.z;
+
+      const projection =
+        dx * direction.x +
+        dy * direction.y +
+        dz * direction.z;
+
+      if (projection < 0 || projection > 100) continue;
+
+      const closestX =
+        origin.x + direction.x * projection;
+
+      const closestY =
+        origin.y + direction.y * projection;
+
+      const closestZ =
+        origin.z + direction.z * projection;
+
+      const distance = Math.sqrt(
+        (targetX - closestX) ** 2 +
+        (targetY - closestY) ** 2 +
+        (targetZ - closestZ) ** 2
+      );
+
+      if (distance < 1.2) {
+
+        target.health -= 25;
+
+        io.emit("hit", {
+          targetId: target.id,
+          health: target.health
+        });
+
+        if (target.health <= 0) {
+
+          target.health = 0;
+          target.alive = false;
+
+          io.to(target.id).emit("eliminated");
+
+          // Simple automatic respawn for testing.
+          setTimeout(() => {
+
+            if (!players[target.id]) return;
+
+            target.x = Math.random() * 20 - 10;
+            target.z = Math.random() * 20 - 10;
+
+            target.health = MAX_HEALTH;
+            target.alive = true;
+
+            io.to(target.id).emit("respawn", {
+              id: target.id,
+              x: target.x,
+              z: target.z
+            });
+
+          }, 3000);
+        }
+
+        break;
+      }
+    }
+  });
+
+  // =============================
+  // DISCONNECT
+  // =============================
+
+  socket.on("disconnect", () => {
+
+    console.log("Player disconnected:", socket.id);
+
+    delete players[socket.id];
+
+    io.emit(
+      "playersUpdate",
+      Object.values(players)
+    );
   });
 });
 
-// Fallback middleware: Send index.html if dist exists
-app.use((req, res, next) => {
-  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
-    const indexPath = path.join(distPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      return res.sendFile(indexPath);
-    }
-  }
-  next();
-});
+// ===============================
+// PLAYER BROADCAST
+// ===============================
 
-// 3. MATCH STATE & SYNCHRONIZATION
-const players = new Map();
-let matchState = 'WARMUP'; // WARMUP, AIRPLANE, BATTLE, GAME_OVER
-let lobbyCountdown = 60;
-
-// Synchronized 60-second lobby countdown timer
 setInterval(() => {
-  if (matchState === 'WARMUP') {
-    lobbyCountdown--;
-    io.emit('lobby_countdown', lobbyCountdown);
 
-    if (lobbyCountdown <= 0) {
-      matchState = 'AIRPLANE';
-      lobbyCountdown = 60;
-      io.emit('match_state', { state: 'AIRPLANE' });
+  io.emit(
+    "playersUpdate",
+    Object.values(players)
+  );
 
-      // After 32s flight, transition to BATTLE
-      setTimeout(() => {
-        matchState = 'BATTLE';
-        io.emit('match_state', { state: 'BATTLE' });
-      }, 32000);
-    }
-  }
-}, 1000);
+}, 50);
 
-// 4. SOCKET.IO EVENT HANDLERS
-io.on('connection', (socket) => {
-  console.log(`[Connect] Player connected: ${socket.id}`);
+// ===============================
+// SERVER START
+// ===============================
 
-  players.set(socket.id, {
-    id: socket.id,
-    x: 0,
-    y: 1.5,
-    z: -360,
-    yaw: 0,
-    state: 'WARMUP',
-    anim: 'idle',
-    hp: 100
-  });
+server.listen(PORT, "0.0.0.0", () => {
 
-  // Notify new player of current match state
-  socket.emit('match_state', { state: matchState });
-  socket.emit('lobby_countdown', lobbyCountdown);
+  console.log(
+    `Battle Royale server running on port ${PORT}`
+  );
 
-  // Send all existing players to the new connection
-  players.forEach((p, pid) => {
-    if (pid !== socket.id) {
-      socket.emit('player_state', p);
-    }
-  });
-
-  // Handle position & animation updates from player
-  socket.on('player_update', (data) => {
-    const p = players.get(socket.id);
-    if (p) {
-      Object.assign(p, data);
-      socket.broadcast.emit('player_state', p);
-    }
-  });
-
-  // Weapon fire event
-  socket.on('player_shoot', (data) => {
-    socket.broadcast.emit('player_shot', {
-      id: socket.id,
-      origin: data.origin,
-      direction: data.direction,
-      weapon: data.weapon
-    });
-  });
-
-  // Disconnect handler
-  socket.on('disconnect', () => {
-    console.log(`[Disconnect] Player left: ${socket.id}`);
-    players.delete(socket.id);
-    io.emit('player_disconnect', socket.id);
-  });
-});
-
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🔥 Free Fire Bharat 3D Server running on http://0.0.0.0:${PORT}`);
-  console.log(`🎮 Game client hosted directly on port ${PORT}`);
 });
