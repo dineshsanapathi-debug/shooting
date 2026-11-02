@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { io } from "socket.io-client";
 import { getCharacters, loadCharacter } from "./characterManager.js";
 import { createThirdPersonController } from "./thirdPersonController.js";
+import { WeaponInventory } from "./weaponInventory.js";
 import "./style.css";
 
 // ===============================
@@ -227,6 +228,44 @@ const controller = createThirdPersonController(
   renderer
 );
 
+// Weapon Inventory System
+const weaponInventory = new WeaponInventory(
+  scene,
+  player,
+  camera,
+  socket
+);
+
+// Spawn weapons around the map
+const weaponSpawnPoints = [
+  { id: "weapon_1", type: "rifle", x: 15, y: 0, z: 12 },
+  { id: "weapon_2", type: "pistol", x: -20, y: 0, z: 10 },
+  { id: "weapon_3", type: "shotgun", x: 30, y: 0, z: -15 },
+  { id: "weapon_4", type: "sniper", x: -35, y: 0, z: -25 },
+  { id: "weapon_5", type: "smg", x: 5, y: 0, z: 40 }
+];
+
+for (const item of weaponSpawnPoints) {
+  weaponInventory.addGroundWeapon(
+    item.id,
+    item.type,
+    new THREE.Vector3(item.x, item.y, item.z)
+  );
+}
+
+// Inventory UI Button Listeners
+document.getElementById("slot1")?.addEventListener("click", () => {
+  weaponInventory.switchWeapon(0);
+});
+
+document.getElementById("slot2")?.addEventListener("click", () => {
+  weaponInventory.switchWeapon(1);
+});
+
+document.getElementById("slot3")?.addEventListener("click", () => {
+  weaponInventory.switchWeapon(2);
+});
+
 // ===============================
 // CHARACTER SELECTION
 // ===============================
@@ -247,7 +286,11 @@ getCharacters().forEach(character => {
   const button = document.createElement("button");
 
   button.className = "character-card";
-  button.textContent = character.name;
+  button.innerHTML = `
+    <div class="card-badge">${character.badge || "🎖️"}</div>
+    <div class="card-name">${character.name}</div>
+    <div class="card-role">${character.role || "Survivor"}</div>
+  `;
 
   button.addEventListener("click", () => {
     selectedCharacterId = character.id;
@@ -356,18 +399,53 @@ function removeOtherPlayer(id) {
 // START GAME
 // ===============================
 
-document.getElementById("startButton")
-  .addEventListener("click", () => {
+const startButton = document.getElementById("startButton");
+if (startButton) {
+  startButton.addEventListener("click", async () => {
+    startButton.disabled = true;
+    startButton.textContent = "ENTERING BATTLEGROUND...";
 
+    try {
+      if (activeCharacter) {
+        player.remove(activeCharacter.model);
+        activeCharacter.dispose();
+      }
+
+      activeCharacter = await loadCharacter(selectedCharacterId);
+      if (placeholderBody.parent) {
+        player.remove(placeholderBody);
+      }
+      player.add(activeCharacter.model);
+      activeCharacter.model.position.set(0, 0, 0);
+    } catch (err) {
+      console.warn("Character load warning:", err);
+    }
+
+    characterReady = true;
     gameStarted = true;
 
-    document.getElementById("startButton").style.display =
-      "none";
+    if (characterScreen) {
+      characterScreen.style.display = "none";
+    }
+    startButton.style.display = "none";
 
     document.body.requestPointerLock();
-
     socket.emit("joinGame", { characterId: selectedCharacterId });
   });
+}
+
+// Respawn Button Handler
+const respawnButton = document.getElementById("respawnButton");
+if (respawnButton) {
+  respawnButton.addEventListener("click", () => {
+    const gameOverScreen = document.getElementById("gameOverScreen");
+    if (gameOverScreen) {
+      gameOverScreen.style.display = "none";
+    }
+    document.body.requestPointerLock();
+    socket.emit("respawnRequest");
+  });
+}
 
 // ===============================
 // SHOOTING
@@ -559,19 +637,22 @@ socket.on("hit", data => {
 });
 
 socket.on("eliminated", () => {
-
   document.getElementById("message").textContent =
     "YOU WERE ELIMINATED!";
-
   myHealth = 0;
+
+  const gameOverScreen = document.getElementById("gameOverScreen");
+  if (gameOverScreen) {
+    gameOverScreen.style.display = "flex";
+  }
+  if (document.exitPointerLock) {
+    document.exitPointerLock();
+  }
 });
 
 socket.on("respawn", data => {
-
   if (data.id === myId) {
-
     myHealth = 100;
-
     player.position.set(
       data.x,
       0,
@@ -580,6 +661,53 @@ socket.on("respawn", data => {
 
     document.getElementById("message").textContent =
       "RESPAWNED!";
+
+    const gameOverScreen = document.getElementById("gameOverScreen");
+    if (gameOverScreen) {
+      gameOverScreen.style.display = "none";
+    }
+  }
+});
+
+socket.on("weaponPickupConfirmed", data => {
+  weaponInventory.confirmPickup(
+    data.weaponId,
+    data.type
+  );
+});
+
+socket.on("weaponRemoved", data => {
+  const weapon =
+    weaponInventory.groundWeapons.get(data.weaponId);
+
+  if (weapon) {
+    scene.remove(weapon.model);
+    weaponInventory.groundWeapons.delete(data.weaponId);
+  }
+});
+
+socket.on("weaponReloadConfirmed", data => {
+  const weapon = weaponInventory.inventory[data.slot];
+  if (weapon) {
+    const needed = weapon.data.magazine - weapon.ammo;
+    const taken = Math.min(needed, weapon.reserveAmmo);
+    weaponInventory.confirmReload(
+      data.slot,
+      weapon.ammo + taken,
+      weapon.reserveAmmo - taken
+    );
+  }
+});
+
+socket.on("initialWeapons", weaponsList => {
+  for (const item of weaponsList) {
+    if (!weaponInventory.groundWeapons.has(item.id)) {
+      weaponInventory.addGroundWeapon(
+        item.id,
+        item.type,
+        new THREE.Vector3(item.x, item.y, item.z)
+      );
+    }
   }
 });
 
@@ -598,6 +726,9 @@ function animate() {
     clock.getDelta(),
     0.05
   );
+
+  // Update weapon inventory distance & prompt
+  weaponInventory.update();
 
   if (gameStarted && characterReady && myHealth > 0) {
     const state = controller.update(delta);

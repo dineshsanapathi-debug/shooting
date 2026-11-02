@@ -17,7 +17,9 @@ app.use(express.json());
 
 // Serve the built frontend
 const distPath = path.join(__dirname, "../client/dist");
+const publicPath = path.join(__dirname, "../client/public");
 app.use(express.static(distPath));
+app.use(express.static(publicPath));
 
 // Fallback to index.html for client-side routing
 app.use((req, res, next) => {
@@ -40,6 +42,15 @@ const io = new Server(server, {
 const players = {};
 
 const MAX_HEALTH = 100;
+
+// Shared Ground Weapon Spawns
+const weaponSpawns = new Map([
+  ["weapon_1", { type: "rifle", x: 15, y: 0, z: 12 }],
+  ["weapon_2", { type: "pistol", x: -20, y: 0, z: 10 }],
+  ["weapon_3", { type: "shotgun", x: 30, y: 0, z: -15 }],
+  ["weapon_4", { type: "sniper", x: -35, y: 0, z: -25 }],
+  ["weapon_5", { type: "smg", x: 5, y: 0, z: 40 }]
+]);
 
 // ===============================
 // PLAYER CREATION
@@ -100,6 +111,47 @@ io.on("connection", socket => {
       "playersUpdate",
       Object.values(players)
     );
+
+    // Send existing ground weapons to player
+    socket.emit(
+      "initialWeapons",
+      Array.from(weaponSpawns.entries()).map(([id, w]) => ({ id, ...w }))
+    );
+  });
+
+  // =============================
+  // WEAPON PICKUP
+  // =============================
+
+  socket.on("pickupWeapon", ({ weaponId }) => {
+    const player = players[socket.id];
+    const weapon = weaponSpawns.get(weaponId);
+
+    if (!player || !player.alive || !weapon) return;
+
+    const distance = Math.hypot(
+      player.x - weapon.x,
+      player.z - weapon.z
+    );
+
+    if (distance > 3.8) return;
+
+    weaponSpawns.delete(weaponId);
+
+    socket.emit("weaponPickupConfirmed", {
+      weaponId,
+      type: weapon.type
+    });
+
+    io.emit("weaponRemoved", { weaponId });
+  });
+
+  // =============================
+  // WEAPON RELOAD
+  // =============================
+
+  socket.on("reloadWeapon", ({ slot }) => {
+    socket.emit("weaponReloadConfirmed", { slot });
   });
 
   // =============================

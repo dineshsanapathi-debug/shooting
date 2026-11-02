@@ -6,31 +6,39 @@ const loader = new GLTFLoader();
 const characters = [
   {
     id: "soldier1",
-    name: "Shadow",
+    name: "Hayato",
+    role: "Bushido Assault",
     model: "/models/characters/soldier1.glb",
     color: 0x2563eb,
-    accent: 0x38bdf8
+    accent: 0x38bdf8,
+    badge: "⚔️"
   },
   {
     id: "soldier2",
-    name: "Warrior",
+    name: "Kelly",
+    role: "Dash Speed",
     model: "/models/characters/soldier2.glb",
     color: 0xdc2626,
-    accent: 0xf87171
+    accent: 0xf87171,
+    badge: "⚡"
   },
   {
     id: "soldier3",
-    name: "Phantom",
+    name: "Alok",
+    role: "Drop the Beat",
     model: "/models/characters/soldier3.glb",
     color: 0x9333ea,
-    accent: 0xc084fc
+    accent: 0xc084fc,
+    badge: "🎧"
   },
   {
     id: "soldier4",
-    name: "Ranger",
+    name: "Chrono",
+    role: "Time Turner Shield",
     model: "/models/characters/soldier4.glb",
     color: 0x16a34a,
-    accent: 0x4ade80
+    accent: 0x4ade80,
+    badge: "🛡️"
   }
 ];
 

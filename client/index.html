@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Battle Royale Shooting Game</title>
+  <title>Free Fire - 3D Multiplayer Battle Royale</title>
+  <link rel="icon" type="image/jpeg" href="/freefire_bg.jpg" />
 </head>
 
 <body>
@@ -15,6 +16,7 @@
   <div id="gameUI">
 
     <div id="topBar">
+      <div id="brandLogo">FREE FIRE</div>
       <div id="playerCount">Players: 0</div>
       <div id="health">Health: 100</div>
     </div>
@@ -22,19 +24,70 @@
     <div id="crosshair">+</div>
 
     <div id="instructions">
-      WASD: Move | Mouse: Aim | Click: Shoot
+      WASD: Move | Shift: Sprint | Space: Jump | C: Crouch | E: Pick Weapon | Left-Click: Shoot | Right-Click: Aim
     </div>
 
     <div id="message"></div>
 
-    <button id="startButton">START GAME</button>
-
   </div>
 
-  <div id="characterScreen">
-    <h2>SELECT YOUR CHARACTER</h2>
-    <div id="characterList"></div>
-    <button id="selectCharacter">SELECT CHARACTER</button>
+  <div id="pickupPrompt">
+    Press E to collect weapon
+  </div>
+
+  <div id="weaponHUD">
+    <div id="weaponName">No weapon</div>
+    <div id="weaponAmmo">0 / 0</div>
+
+    <div class="weaponSlots">
+      <button id="slot1">1</button>
+      <button id="slot2">2</button>
+      <button id="slot3">3</button>
+    </div>
+  </div>
+
+  <div id="gameMessage"></div>
+
+  <!-- FREE FIRE LOBBY & CHARACTER SELECTION (FRONTEND IMAGE BACKGROUND) -->
+  <div id="characterScreen" class="lobby-screen">
+    <div class="lobby-overlay"></div>
+    <div class="lobby-content">
+      <div class="freefire-header">
+        <h1 class="freefire-title">FREE FIRE</h1>
+        <p class="freefire-subtitle">3D MULTIPLAYER BATTLE ROYALE</p>
+      </div>
+
+      <div class="character-section">
+        <h3>CHOOSE YOUR SURVIVOR</h3>
+        <div id="characterList"></div>
+      </div>
+
+      <div class="lobby-actions">
+        <button id="startButton" class="btn-battle">ENTER BATTLEGROUND</button>
+        <button id="selectCharacter" class="btn-select" style="display:none;">SELECT CHARACTER</button>
+      </div>
+
+      <div class="controls-guide">
+        <span>🎮 <b>WASD</b> Move</span>
+        <span>⚡ <b>Shift</b> Sprint</span>
+        <span>🚀 <b>Space</b> Jump</span>
+        <span>🛡️ <b>Ctrl/C</b> Crouch</span>
+        <span>🎯 <b>R-Click</b> Aim</span>
+        <span>💥 <b>L-Click</b> Shoot</span>
+        <span>📦 <b>E</b> Loot</span>
+        <span>🔄 <b>R</b> Reload</span>
+        <span>🔢 <b>1-3</b> Weapons</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME OVER / RESPAWN SCREEN -->
+  <div id="gameOverScreen" style="display: none;">
+    <div class="gameover-box">
+      <h2 id="gameOverTitle">ELIMINATED</h2>
+      <p id="gameOverSubtitle">Better luck next match survivor!</p>
+      <button id="respawnButton" class="btn-battle">PLAY AGAIN</button>
+    </div>
   </div>
 
   <div id="mobileActions">
