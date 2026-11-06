@@ -5,40 +5,104 @@ const loader = new GLTFLoader();
 
 const characters = [
   {
-    id: "soldier1",
-    name: "Hayato",
-    role: "Bushido Assault",
-    model: "/models/characters/soldier1.glb",
-    color: 0x2563eb,
-    accent: 0x38bdf8,
-    badge: "⚔️"
-  },
-  {
-    id: "soldier2",
-    name: "Kelly",
-    role: "Dash Speed",
-    model: "/models/characters/soldier2.glb",
-    color: 0xdc2626,
-    accent: 0xf87171,
-    badge: "⚡"
-  },
-  {
-    id: "soldier3",
+    id: "alok",
+    alias: "soldier3",
     name: "Alok",
     role: "Drop the Beat",
-    model: "/models/characters/soldier3.glb",
-    color: 0x9333ea,
-    accent: 0xc084fc,
-    badge: "🎧"
+    skillName: "Drop the Beat",
+    skillType: "active",
+    model: "/models/characters/alok.glb",
+    color: 0x0284c7, // Vibrant cyan blue
+    accent: 0x38bdf8,
+    badge: "🎧",
+    description: "Active: 15% speed boost & heals nearby allies"
   },
   {
-    id: "soldier4",
+    id: "chrono",
+    alias: "soldier4",
     name: "Chrono",
     role: "Time Turner Shield",
-    model: "/models/characters/soldier4.glb",
-    color: 0x16a34a,
+    skillName: "Time Turner",
+    skillType: "active",
+    model: "/models/characters/chrono.glb",
+    color: 0x2563eb, // Cobalt electric blue
+    accent: 0x60a5fa,
+    badge: "🛡️",
+    description: "Active: Force field absorbs 600 damage + speed boost"
+  },
+  {
+    id: "kelly",
+    alias: "soldier2",
+    name: "Kelly",
+    role: "Dash Speed",
+    skillName: "Dash",
+    skillType: "passive",
+    model: "/models/characters/kelly.glb",
+    color: 0xeab308, // Golden yellow runner
+    accent: 0xfef08a,
+    badge: "⚡",
+    description: "Passive: Permanent +6% sprint speed increase"
+  },
+  {
+    id: "moco",
+    name: "Moco",
+    role: "Hacker's Eye",
+    skillName: "Hacker's Eye",
+    skillType: "passive",
+    model: "/models/characters/moco.glb",
+    color: 0x10b981, // Cyber green
+    accent: 0x34d399,
+    badge: "👁️",
+    description: "Passive: Reveals enemies hit for 5 seconds"
+  },
+  {
+    id: "wukong",
+    name: "Wukong",
+    role: "Camouflage",
+    skillName: "Camouflage",
+    skillType: "active",
+    model: "/models/characters/wukong.glb",
+    color: 0x15803d, // Jungle green
     accent: 0x4ade80,
-    badge: "🛡️"
+    badge: "🍃",
+    description: "Active: Transforms into bush; CD resets on takedown"
+  },
+  {
+    id: "jota",
+    name: "Jota",
+    role: "Sustained Raids",
+    skillName: "Sustained Raids",
+    skillType: "passive",
+    model: "/models/characters/jota.glb",
+    color: 0xd97706, // Parkour amber
+    accent: 0xfbbf24,
+    badge: "💥",
+    description: "Passive: Restores 20 HP upon Shotgun/SMG elimination"
+  },
+  {
+    id: "hayato",
+    alias: "soldier1",
+    name: "Hayato",
+    role: "Bushido",
+    skillName: "Bushido",
+    skillType: "passive",
+    model: "/models/characters/hayato.glb",
+    color: 0xdc2626, // Crimson samurai
+    accent: 0xf87171,
+    badge: "⚔️",
+    description: "Passive: Up to +20% armor penetration when HP is low"
+  },
+  {
+    id: "rafael",
+    name: "Rafael",
+    role: "Dead Silent",
+    skillName: "Dead Silent",
+    skillType: "passive",
+    model: "/models/characters/rafael.glb",
+    color: 0x475569, // Stealth dark slate
+    accent: 0x94a3b8,
+    badge: "🎯",
+    description: "Passive: Silences sniper & marksman rifle shots"
   }
 ];
 
@@ -47,9 +111,10 @@ export function getCharacters() {
 }
 
 export async function loadCharacter(characterId) {
+  const query = String(characterId || "").toLowerCase();
   const character = characters.find(
-    item => item.id === characterId
-  );
+    item => item.id === query || item.alias === query
+  ) || characters[0];
 
   if (!character) {
     throw new Error("Character not found");

@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
+const skills = require("./characterSkills");
 
 const app = express();
 const server = http.createServer(app);
@@ -75,12 +76,13 @@ function getPlanePosition() {
 // PLAYER CREATION
 // ===============================
 
-function createPlayer(id, characterId = "soldier1") {
+function createPlayer(id, characterId = "hayato") {
   const plane = getPlanePosition();
 
-  return {
+  const player = {
     id,
     characterId,
+    character: characterId,
 
     state: "airplane", // "airplane" | "falling" | "parachuting" | "landed"
 
@@ -91,6 +93,10 @@ function createPlayer(id, characterId = "soldier1") {
     rotation: plane.rotation,
 
     health: MAX_HEALTH,
+    maxHealth: MAX_HEALTH,
+    forceFieldHP: 0,
+    isCamouflaged: false,
+    teamId: "solo",
 
     alive: true,
     moving: false,
@@ -99,6 +105,14 @@ function createPlayer(id, characterId = "soldier1") {
     crouching: false,
     aiming: false
   };
+
+  try {
+    skills.initializeCharacter(player, characterId);
+  } catch (e) {
+    skills.initializeCharacter(player, "hayato");
+  }
+
+  return player;
 }
 
 // ===============================
@@ -110,17 +124,74 @@ io.on("connection", socket => {
   console.log("Player connected:", socket.id);
 
   // =============================
+  // CHARACTER SELECTION & SKILLS
+  // =============================
+
+  socket.on("selectCharacter", characterId => {
+    const player = players[socket.id];
+    if (!player) return;
+
+    try {
+      const selected = skills.initializeCharacter(player, characterId);
+      socket.emit("characterSelected", {
+        character: player.character,
+        skillName: selected.skillName,
+        skillType: selected.type,
+        cooldown: selected.cooldown || 0,
+        description: selected.description || ""
+      });
+    } catch (error) {
+      socket.emit("characterSelectionError", {
+        message: error.message
+      });
+    }
+  });
+
+  socket.on("activateSkill", () => {
+    const player = players[socket.id];
+    if (!player) return;
+
+    const result = skills.activateSkill(socket.id, player);
+    socket.emit("skillResult", result);
+
+    if (result.success) {
+      io.emit("playerSkillActivated", {
+        playerId: socket.id,
+        skill: result.skill,
+        duration: result.duration,
+        shield: result.shield || 0,
+        camouflaged: Boolean(result.camouflaged)
+      });
+    }
+  });
+
+  // =============================
   // JOIN GAME
   // =============================
 
   socket.on("joinGame", data => {
 
-    const charId = (data && data.characterId) ? data.characterId : "soldier1";
+    const charId = (data && data.characterId) ? data.characterId : "hayato";
 
     if (!players[socket.id]) {
       players[socket.id] = createPlayer(socket.id, charId);
     } else {
-      players[socket.id].characterId = charId;
+      try {
+        skills.initializeCharacter(players[socket.id], charId);
+      } catch (e) {
+        skills.initializeCharacter(players[socket.id], "hayato");
+      }
+    }
+
+    const currentSkill = skills.CHARACTER_SKILLS[players[socket.id].character];
+    if (currentSkill) {
+      socket.emit("characterSelected", {
+        character: players[socket.id].character,
+        skillName: currentSkill.skillName,
+        skillType: currentSkill.type,
+        cooldown: currentSkill.cooldown || 0,
+        description: currentSkill.description || ""
+      });
     }
 
     socket.emit(
@@ -297,6 +368,13 @@ io.on("connection", socket => {
     player.crouching = Boolean(data.crouching);
     player.aiming = Boolean(data.aiming);
     if (data.characterId) player.characterId = data.characterId;
+
+    // Movement multiplier based on skills (e.g. Kelly, Alok, Chrono)
+    player.movementMultiplier = skills.getMovementMultiplier(
+      socket.id,
+      player,
+      player.running
+    );
   });
 
   // =============================
@@ -327,6 +405,13 @@ io.on("connection", socket => {
 
     const origin = data.origin;
     const direction = data.direction;
+    const weaponType = data.weaponType || "rifle";
+
+    // Rafael: silenced sniper / marksman shots
+    const isSilent = skills.isWeaponSilent(shooter, weaponType);
+    if (!isSilent) {
+      io.emit("gunshotSound", { shooterId: socket.id, position: origin });
+    }
 
     const values = [
       origin.x,
@@ -389,19 +474,40 @@ io.on("connection", socket => {
 
       if (distance < 1.2) {
 
-        target.health -= 25;
+        // Calculate skill-aware damage (Hayato penetration, Chrono force-field)
+        const damageResult = skills.applyDamage(shooter, target, 25);
+
+        // Moco: Hacker's eye reveal mark
+        skills.onWeaponHit(socket.id, shooter, target.id);
 
         io.emit("hit", {
           targetId: target.id,
-          health: target.health
+          health: target.health,
+          shield: target.forceFieldHP || 0,
+          attackerId: socket.id
         });
 
-        if (target.health <= 0) {
+        io.to(target.id).emit("healthUpdate", {
+          health: target.health,
+          shield: target.forceFieldHP || 0
+        });
 
-          target.health = 0;
-          target.alive = false;
+        if (damageResult.eliminated) {
+
+          // Jota healing & Wukong takedown CD reset
+          skills.onElimination(socket.id, shooter, target, weaponType);
+
+          io.emit("playerEliminated", {
+            playerId: target.id,
+            killerId: socket.id
+          });
 
           io.to(target.id).emit("eliminated");
+
+          io.to(socket.id).emit("eliminationConfirmed", {
+            victimId: target.id,
+            healed: shooter.character === "jota"
+          });
 
           // Simple automatic respawn for testing.
           setTimeout(() => {
@@ -412,6 +518,7 @@ io.on("connection", socket => {
             target.z = Math.random() * 20 - 10;
 
             target.health = MAX_HEALTH;
+            target.forceFieldHP = 0;
             target.alive = true;
 
             io.to(target.id).emit("respawn", {
@@ -436,6 +543,8 @@ io.on("connection", socket => {
 
     console.log("Player disconnected:", socket.id);
 
+    skills.cleanupPlayer(socket.id);
+
     delete players[socket.id];
 
     io.emit(
@@ -452,6 +561,26 @@ io.on("connection", socket => {
 setInterval(() => {
 
   const plane = getPlanePosition();
+
+  // Skills tick: Alok healing & active effect expiration
+  skills.tick(players, io);
+
+  // Moco Enemy Reveal: send to attacker privately
+  for (const [attackerId, attacker] of Object.entries(players)) {
+    if (attacker.character === "moco" && attacker.alive) {
+      for (const [enemyId, enemy] of Object.entries(players)) {
+        if (enemy.alive && enemyId !== attackerId && skills.isEnemyRevealed(attackerId, enemyId)) {
+          io.to(attackerId).emit("enemyRevealed", {
+            id: enemyId,
+            x: enemy.x,
+            y: enemy.y,
+            z: enemy.z,
+            duration: 5000
+          });
+        }
+      }
+    }
+  }
 
   // Keep any players currently aboard the airplane locked to its position
   for (const p of Object.values(players)) {

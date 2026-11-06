@@ -145,6 +145,8 @@ export function createThirdPersonController(
     if (running) speed = runSpeed;
     if (crouching) speed = crouchSpeed;
 
+    speed *= speedMultiplier;
+
     player.position.addScaledVector(
       direction,
       speed * delta
@@ -226,6 +228,7 @@ export function createThirdPersonController(
     };
   }
 
+  let speedMultiplier = 1;
   let enabled = true;
 
   return {
@@ -237,6 +240,7 @@ export function createThirdPersonController(
     setCrouching,
     setAiming,
     setJoystick,
+    setSpeedMultiplier(val) { speedMultiplier = Number(val) || 1; },
     getYaw: () => yaw,
     setYaw: (val) => { yaw = val; },
     setEnabled: (val) => { enabled = val; },

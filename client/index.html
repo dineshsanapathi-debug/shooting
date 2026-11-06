@@ -18,17 +18,26 @@
     <div id="topBar">
       <div id="brandLogo">FREE FIRE</div>
       <div id="playerCount">Players: 0</div>
+      <div id="shieldBar" style="display:none;">Shield: <span id="shieldValue">0</span></div>
       <div id="health">Health: 100</div>
     </div>
 
     <div id="crosshair">+</div>
 
     <div id="instructions">
-      WASD: Move | Shift: Sprint | Space: Jump | C: Crouch | E: Pick Weapon | Left-Click: Shoot | Right-Click: Aim
+      WASD: Move | Shift: Sprint | Space: Jump | C: Crouch | E: Loot | Q: Skill | Click: Shoot
     </div>
 
     <div id="message"></div>
 
+  </div>
+
+  <!-- CHARACTER SPECIAL SKILL HUD -->
+  <div id="skillHUD">
+    <div id="selectedCharacterName">HAYATO</div>
+    <div id="selectedSkillName">Bushido (Passive)</div>
+    <button id="skillButton">USE SKILL (Q)</button>
+    <div id="skillCooldown">PASSIVE ACTIVE</div>
   </div>
 
   <div id="pickupPrompt">

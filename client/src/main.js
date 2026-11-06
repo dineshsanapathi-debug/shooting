@@ -219,6 +219,108 @@ placeholderBody.position.y = 1.0;
 placeholderBody.castShadow = true;
 player.add(placeholderBody);
 
+// ===============================
+// SKILL 3D VISUAL EFFECTS BUILDERS
+// ===============================
+
+function createAlokHealingAura() {
+  const aura = new THREE.Group();
+  aura.name = "AlokHealingAura";
+
+  const outerRingGeo = new THREE.RingGeometry(4.8, 5.0, 32);
+  outerRingGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x00d2ff,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.8
+  });
+  const outerRing = new THREE.Mesh(outerRingGeo, ringMat);
+  aura.add(outerRing);
+
+  const innerRingGeo = new THREE.RingGeometry(2.3, 2.5, 32);
+  innerRingGeo.rotateX(-Math.PI / 2);
+  const innerRing = new THREE.Mesh(innerRingGeo, ringMat);
+  aura.add(innerRing);
+
+  aura.visible = false;
+  return aura;
+}
+
+function createChronoForceField() {
+  const shieldGeo = new THREE.SphereGeometry(2.2, 24, 24);
+  const shieldMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.35,
+    roughness: 0.1,
+    metalness: 0.6,
+    side: THREE.DoubleSide
+  });
+  const shield = new THREE.Mesh(shieldGeo, shieldMat);
+  shield.name = "ChronoShield";
+  shield.position.y = 1.0;
+  shield.visible = false;
+  return shield;
+}
+
+function createWukongBush() {
+  const bush = new THREE.Group();
+  bush.name = "WukongBush";
+
+  const leafMat = new THREE.MeshStandardMaterial({
+    color: 0x166534,
+    roughness: 0.8,
+    metalness: 0.1
+  });
+  const leafMatLight = new THREE.MeshStandardMaterial({
+    color: 0x22c55e,
+    roughness: 0.7
+  });
+
+  const parts = [
+    [0, 0.7, 0, 1.1, leafMat],
+    [0.4, 0.9, 0.3, 0.85, leafMatLight],
+    [-0.4, 0.8, -0.2, 0.9, leafMat],
+    [0.2, 1.2, -0.3, 0.8, leafMatLight],
+    [-0.3, 1.1, 0.3, 0.75, leafMat]
+  ];
+
+  for (const [x, y, z, r, mat] of parts) {
+    const sphere = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 1), mat);
+    sphere.position.set(x, y, z);
+    bush.add(sphere);
+  }
+
+  bush.visible = false;
+  return bush;
+}
+
+function createMocoMarker() {
+  const marker = new THREE.Group();
+  marker.name = "MocoMarker";
+
+  const diamond = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.35),
+    new THREE.MeshBasicMaterial({ color: 0xef4444 })
+  );
+  diamond.position.y = 2.4;
+  marker.add(diamond);
+
+  marker.visible = false;
+  return marker;
+}
+
+// Local Player Skill Meshes
+const localAlokAura = createAlokHealingAura();
+player.add(localAlokAura);
+
+const localChronoShield = createChronoForceField();
+player.add(localChronoShield);
+
+const localWukongBush = createWukongBush();
+player.add(localWukongBush);
+
 // Camera position
 camera.position.set(0, 5, 8);
 
@@ -457,7 +559,8 @@ getCharacters().forEach(character => {
   button.innerHTML = `
     <div class="card-badge">${character.badge || "🎖️"}</div>
     <div class="card-name">${character.name}</div>
-    <div class="card-role">${character.role || "Survivor"}</div>
+    <div class="card-role">${character.skillName || character.role}</div>
+    <div class="card-type" style="font-size: 0.68rem; color: ${character.skillType === 'active' ? '#f59e0b' : '#38bdf8'}; font-weight: bold; text-transform: uppercase;">${character.skillType || 'passive'}</div>
   `;
 
   button.addEventListener("click", () => {
@@ -467,6 +570,8 @@ getCharacters().forEach(character => {
       .forEach(card => card.classList.remove("selected"));
 
     button.classList.add("selected");
+
+    socket.emit("selectCharacter", selectedCharacterId);
   });
 
   characterList.appendChild(button);
@@ -553,6 +658,23 @@ function createOtherPlayer(id, charId = "soldier1") {
   remoteParachute.visible = false;
   group.add(remoteParachute);
   group.userData.parachute = remoteParachute;
+
+  // Remote player skill effects
+  const remoteAlokAura = createAlokHealingAura();
+  group.add(remoteAlokAura);
+  group.userData.alokAura = remoteAlokAura;
+
+  const remoteChronoShield = createChronoForceField();
+  group.add(remoteChronoShield);
+  group.userData.chronoShield = remoteChronoShield;
+
+  const remoteWukongBush = createWukongBush();
+  group.add(remoteWukongBush);
+  group.userData.wukongBush = remoteWukongBush;
+
+  const remoteMocoMarker = createMocoMarker();
+  group.add(remoteMocoMarker);
+  group.userData.mocoMarker = remoteMocoMarker;
 
   group.userData.targetPosition = new THREE.Vector3();
   group.userData.targetRotation = 0;
@@ -836,7 +958,213 @@ socket.on("hit", data => {
     myHealth = data.health;
 
     document.getElementById("health").textContent =
-      "Health: " + myHealth;
+      "Health: " + Math.round(myHealth);
+
+    const shieldBar = document.getElementById("shieldBar");
+    const shieldValue = document.getElementById("shieldValue");
+    if (shieldBar && shieldValue) {
+      if (data.shield > 0) {
+        shieldBar.style.display = "block";
+        shieldValue.textContent = Math.round(data.shield);
+      } else {
+        shieldBar.style.display = "none";
+      }
+    }
+  }
+});
+
+socket.on("healthUpdate", data => {
+  myHealth = data.health;
+  document.getElementById("health").textContent =
+    "Health: " + Math.round(myHealth);
+
+  const shieldBar = document.getElementById("shieldBar");
+  const shieldValue = document.getElementById("shieldValue");
+  if (shieldBar && shieldValue) {
+    if (data.shield > 0) {
+      shieldBar.style.display = "block";
+      shieldValue.textContent = Math.round(data.shield);
+    } else {
+      shieldBar.style.display = "none";
+    }
+  }
+});
+
+// ===============================
+// SKILL HUD & SPECIAL ABILITIES
+// ===============================
+
+const skillButton = document.getElementById("skillButton");
+const selectedCharNameEl = document.getElementById("selectedCharacterName");
+const selectedSkillNameEl = document.getElementById("selectedSkillName");
+const skillCooldownEl = document.getElementById("skillCooldown");
+
+let activeSkillCooldownTimer = null;
+let currentSkillType = "passive";
+
+if (skillButton) {
+  skillButton.addEventListener("click", () => {
+    socket.emit("activateSkill");
+  });
+}
+
+// Press Q to activate skill
+window.addEventListener("keydown", event => {
+  if (event.code === "KeyQ" && gameStarted && airDrop.state === "landed") {
+    socket.emit("activateSkill");
+  }
+});
+
+socket.on("characterSelected", data => {
+  if (selectedCharNameEl) {
+    selectedCharNameEl.textContent = data.character.toUpperCase();
+  }
+  if (selectedSkillNameEl) {
+    selectedSkillNameEl.textContent = data.skillName + (data.skillType === "active" ? " (Active)" : " (Passive)");
+  }
+  currentSkillType = data.skillType;
+
+  if (data.skillType === "passive") {
+    if (skillButton) {
+      skillButton.textContent = "PASSIVE SKILL";
+      skillButton.disabled = true;
+    }
+    if (skillCooldownEl) {
+      skillCooldownEl.textContent = "PASSIVE ACTIVE";
+      skillCooldownEl.style.color = "#4ade80";
+    }
+  } else {
+    if (skillButton) {
+      skillButton.textContent = "USE SKILL (Q)";
+      skillButton.disabled = false;
+    }
+    if (skillCooldownEl) {
+      skillCooldownEl.textContent = "READY";
+      skillCooldownEl.style.color = "#6cff8d";
+    }
+  }
+});
+
+socket.on("characterSelectionError", data => {
+  alert(data.message || "Character selection error");
+});
+
+socket.on("skillResult", result => {
+  if (skillCooldownEl) {
+    if (result.success) {
+      skillCooldownEl.textContent = "SKILL ACTIVATED!";
+      skillCooldownEl.style.color = "#38bdf8";
+      if (skillButton) skillButton.disabled = true;
+
+      // Start client cooldown countdown
+      let remainingSec = Math.round((result.cooldown || 45000) / 1000);
+      if (activeSkillCooldownTimer) clearInterval(activeSkillCooldownTimer);
+      activeSkillCooldownTimer = setInterval(() => {
+        remainingSec--;
+        if (remainingSec <= 0) {
+          clearInterval(activeSkillCooldownTimer);
+          if (skillCooldownEl) {
+            skillCooldownEl.textContent = "READY";
+            skillCooldownEl.style.color = "#6cff8d";
+          }
+          if (skillButton && currentSkillType === "active") {
+            skillButton.disabled = false;
+          }
+        } else {
+          if (skillCooldownEl) {
+            skillCooldownEl.textContent = `COOLDOWN: ${remainingSec}s`;
+            skillCooldownEl.style.color = "#f59e0b";
+          }
+        }
+      }, 1000);
+    } else {
+      skillCooldownEl.textContent = result.message || "CANNOT USE";
+      skillCooldownEl.style.color = "#ef4444";
+      setTimeout(() => {
+        if (skillCooldownEl && currentSkillType === "active") {
+          skillCooldownEl.textContent = "READY";
+          skillCooldownEl.style.color = "#6cff8d";
+        }
+      }, 2500);
+    }
+  }
+});
+
+// Broadcast visual skills effects
+socket.on("playerSkillActivated", data => {
+  const isMe = (data.playerId === myId);
+  const targetGroup = isMe ? player : otherPlayers[data.playerId];
+  if (!targetGroup) return;
+
+  if (data.skill === "alok") {
+    const aura = isMe ? localAlokAura : targetGroup.userData.alokAura;
+    if (aura) aura.visible = true;
+  } else if (data.skill === "chrono") {
+    const shield = isMe ? localChronoShield : targetGroup.userData.chronoShield;
+    if (shield) shield.visible = true;
+
+    if (isMe) {
+      const shieldBar = document.getElementById("shieldBar");
+      const shieldValue = document.getElementById("shieldValue");
+      if (shieldBar && shieldValue) {
+        shieldBar.style.display = "block";
+        shieldValue.textContent = data.shield || 600;
+      }
+    }
+  } else if (data.skill === "wukong") {
+    const bush = isMe ? localWukongBush : targetGroup.userData.wukongBush;
+    if (bush) bush.visible = true;
+    if (isMe && activeCharacter) {
+      activeCharacter.model.visible = false;
+    }
+  }
+});
+
+socket.on("playerSkillExpired", data => {
+  const isMe = (data.playerId === myId);
+  const targetGroup = isMe ? player : otherPlayers[data.playerId];
+  if (!targetGroup) return;
+
+  if (data.skill === "alok") {
+    const aura = isMe ? localAlokAura : targetGroup.userData.alokAura;
+    if (aura) aura.visible = false;
+  } else if (data.skill === "chrono") {
+    const shield = isMe ? localChronoShield : targetGroup.userData.chronoShield;
+    if (shield) shield.visible = false;
+    if (isMe) {
+      const shieldBar = document.getElementById("shieldBar");
+      if (shieldBar) shieldBar.style.display = "none";
+    }
+  } else if (data.skill === "wukong") {
+    const bush = isMe ? localWukongBush : targetGroup.userData.wukongBush;
+    if (bush) bush.visible = false;
+    if (isMe && activeCharacter) {
+      activeCharacter.model.visible = true;
+    }
+  }
+});
+
+// Moco enemy reveal indicator
+socket.on("enemyRevealed", data => {
+  const remote = otherPlayers[data.id];
+  if (remote && remote.userData.mocoMarker) {
+    remote.userData.mocoMarker.visible = true;
+    setTimeout(() => {
+      if (remote.userData.mocoMarker) remote.userData.mocoMarker.visible = false;
+    }, data.duration || 5000);
+  }
+});
+
+// Jota elimination feedback
+socket.on("eliminationConfirmed", data => {
+  if (data.healed) {
+    const msg = document.getElementById("gameMessage");
+    if (msg) {
+      msg.textContent = "+20 HP (Sustained Raids)";
+      msg.style.display = "block";
+      msg.style.color = "#4ade80";
+      setTimeout(() => { msg.style.display = "none"; }, 2500);
+    }
   }
 });
 
@@ -971,6 +1299,14 @@ function animate() {
       }
     } else {
       // Landed - normal ground controller is active!
+
+      // Calculate character skills speed multiplier
+      let speedMult = 1.0;
+      if (selectedCharacterId === "kelly") speedMult *= 1.06;
+      if (localAlokAura && localAlokAura.visible) speedMult *= 1.15;
+      if (localChronoShield && localChronoShield.visible) speedMult *= 1.15;
+      controller.setSpeedMultiplier(speedMult);
+
       const state = controller.update(delta);
 
       if (state) {
@@ -991,6 +1327,16 @@ function animate() {
 
           activeCharacter.playAnimation(animation);
           activeCharacter.update(delta);
+
+          // Hayato Bushido red armor pulse when health < 50%
+          if (selectedCharacterId === "hayato" && myHealth < 50) {
+            const pulse = (Math.sin(Date.now() * 0.008) + 1) * 0.5;
+            activeCharacter.model.traverse(child => {
+              if (child.isMesh && child.material && child.material.emissive) {
+                child.material.emissive.setRGB(pulse * 0.5, 0, 0);
+              }
+            });
+          }
         }
 
         if (state.shooting) {
@@ -1019,7 +1365,30 @@ function animate() {
     }
   }
 
+  // Animate skill visual effects
+  if (localAlokAura && localAlokAura.visible) {
+    localAlokAura.rotation.y += delta * 1.5;
+  }
+  if (localChronoShield && localChronoShield.visible) {
+    const scalePulse = 1.0 + Math.sin(Date.now() * 0.006) * 0.04;
+    localChronoShield.scale.setScalar(scalePulse);
+  }
+  if (localWukongBush && localWukongBush.visible) {
+    localWukongBush.rotation.y += delta * 0.5;
+  }
+
   for (const remote of Object.values(otherPlayers)) {
+    if (remote.userData.alokAura && remote.userData.alokAura.visible) {
+      remote.userData.alokAura.rotation.y += delta * 1.5;
+    }
+    if (remote.userData.chronoShield && remote.userData.chronoShield.visible) {
+      const scalePulse = 1.0 + Math.sin(Date.now() * 0.006) * 0.04;
+      remote.userData.chronoShield.scale.setScalar(scalePulse);
+    }
+    if (remote.userData.mocoMarker && remote.userData.mocoMarker.visible) {
+      remote.userData.mocoMarker.rotation.y += delta * 3;
+    }
+
     remote.position.lerp(
       remote.userData.targetPosition,
       Math.min(1, delta * 12)
