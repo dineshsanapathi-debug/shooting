@@ -218,6 +218,21 @@ function createRiggedFallback(character) {
   ]);
   actions["shoot"] = mixer.clipAction(shootClip);
 
+  const skydiveClip = new THREE.AnimationClip("skydive", 1.0, [
+    new THREE.VectorKeyframeTrack(".scale", [0, 0.5, 1.0], [1.08, 0.92, 1.08, 1.04, 0.96, 1.04, 1.08, 0.92, 1.08])
+  ]);
+  actions["skydive"] = mixer.clipAction(skydiveClip);
+
+  const parachuteClip = new THREE.AnimationClip("parachute", 1.5, [
+    new THREE.VectorKeyframeTrack(".position", [0, 0.75, 1.5], [0, 0, 0, 0, -0.05, 0, 0, 0, 0])
+  ]);
+  actions["parachute"] = mixer.clipAction(parachuteClip);
+
+  const landingClip = new THREE.AnimationClip("landing", 0.6, [
+    new THREE.VectorKeyframeTrack(".scale", [0, 0.25, 0.6], [1, 1, 1, 1.15, 0.65, 1.15, 1, 1, 1])
+  ]);
+  actions["landing"] = mixer.clipAction(landingClip);
+
   let currentAction = null;
 
   function playAnimation(name, fade = 0.15) {

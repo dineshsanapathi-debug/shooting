@@ -226,12 +226,21 @@ export function createThirdPersonController(
     };
   }
 
+  let enabled = true;
+
   return {
-    update,
+    update(delta) {
+      if (!enabled) return null;
+      return update(delta);
+    },
     jump,
     setCrouching,
     setAiming,
-    setJoystick
+    setJoystick,
+    getYaw: () => yaw,
+    setYaw: (val) => { yaw = val; },
+    setEnabled: (val) => { enabled = val; },
+    isEnabled: () => enabled
   };
 }
 

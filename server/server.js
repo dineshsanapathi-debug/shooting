@@ -53,21 +53,42 @@ const weaponSpawns = new Map([
 ]);
 
 // ===============================
+// AIRPLANE FLIGHT PATH
+// ===============================
+
+const PLANE_START = { x: -160, y: 85, z: -160 };
+const PLANE_END = { x: 160, y: 85, z: 160 };
+const planeRotation = Math.atan2(-(PLANE_END.x - PLANE_START.x), -(PLANE_END.z - PLANE_START.z));
+
+function getPlanePosition() {
+  const elapsed = (Date.now() / 1000 * 18) % 360;
+  const factor = elapsed / 360;
+  return {
+    x: PLANE_START.x + (PLANE_END.x - PLANE_START.x) * factor,
+    y: 85,
+    z: PLANE_START.z + (PLANE_END.z - PLANE_START.z) * factor,
+    rotation: planeRotation
+  };
+}
+
+// ===============================
 // PLAYER CREATION
 // ===============================
 
 function createPlayer(id, characterId = "soldier1") {
+  const plane = getPlanePosition();
 
   return {
     id,
-
     characterId,
 
-    x: Math.random() * 20 - 10,
-    y: 0,
-    z: Math.random() * 20 - 10,
+    state: "airplane", // "airplane" | "falling" | "parachuting" | "landed"
 
-    rotation: 0,
+    x: plane.x,
+    y: 85,
+    z: plane.z,
+
+    rotation: plane.rotation,
 
     health: MAX_HEALTH,
 
@@ -120,6 +141,98 @@ io.on("connection", socket => {
   });
 
   // =============================
+  // AIRDROP & PARACHUTE EVENTS
+  // =============================
+
+  socket.on("jumpFromPlane", () => {
+    const player = players[socket.id];
+
+    if (!player || !player.alive) return;
+    if (player.state !== "airplane") return;
+
+    player.state = "falling";
+
+    io.emit("playerAirState", {
+      id: socket.id,
+      state: player.state
+    });
+  });
+
+  socket.on("openParachute", () => {
+    const player = players[socket.id];
+
+    if (!player || !player.alive) return;
+    if (player.state !== "falling") return;
+    if (player.y <= 15) return;
+
+    player.state = "parachuting";
+
+    io.emit("playerAirState", {
+      id: socket.id,
+      state: player.state
+    });
+  });
+
+  socket.on("airMovement", data => {
+    const player = players[socket.id];
+
+    if (!player || !player.alive) return;
+    if (player.state !== "falling" && player.state !== "parachuting") return;
+
+    if (Number.isFinite(data.x) && Number.isFinite(data.z)) {
+      player.x = Math.max(-145, Math.min(145, data.x));
+      player.z = Math.max(-145, Math.min(145, data.z));
+    }
+    if (Number.isFinite(data.y)) {
+      player.y = Math.max(0, Math.min(95, data.y));
+    }
+    if (Number.isFinite(data.rotation)) {
+      player.rotation = data.rotation;
+    }
+
+    // Server-side altitude checks
+    if (player.state === "falling" && player.y <= 35 && player.y > 0) {
+      player.state = "parachuting";
+      io.emit("playerAirState", {
+        id: socket.id,
+        state: "parachuting"
+      });
+    }
+
+    if (player.y <= 0) {
+      player.y = 0;
+      player.state = "landed";
+      io.emit("playerAirState", {
+        id: socket.id,
+        state: "landed"
+      });
+    }
+  });
+
+  socket.on("playerLanded", data => {
+    const player = players[socket.id];
+
+    if (!player || !player.alive) return;
+
+    if (
+      player.state !== "falling" &&
+      player.state !== "parachuting"
+    ) return;
+
+    player.y = 0;
+    if (data && Number.isFinite(data.x) && Number.isFinite(data.z)) {
+      player.x = Math.max(-145, Math.min(145, data.x));
+      player.z = Math.max(-145, Math.min(145, data.z));
+    }
+    player.state = "landed";
+
+    io.emit("playerAirState", {
+      id: socket.id,
+      state: "landed"
+    });
+  });
+
+  // =============================
   // WEAPON PICKUP
   // =============================
 
@@ -128,6 +241,8 @@ io.on("connection", socket => {
     const weapon = weaponSpawns.get(weaponId);
 
     if (!player || !player.alive || !weapon) return;
+    // Rule: Weapons can only be picked up after landing
+    if (player.state !== "landed") return;
 
     const distance = Math.hypot(
       player.x - weapon.x,
@@ -162,6 +277,8 @@ io.on("connection", socket => {
     const player = players[socket.id];
 
     if (!player || !player.alive) return;
+    // Ground movement only accepted once player has landed
+    if (player.state !== "landed") return;
 
     if (
       !Number.isFinite(data.x) ||
@@ -199,6 +316,8 @@ io.on("connection", socket => {
     const shooter = players[socket.id];
 
     if (!shooter || !shooter.alive) return;
+    // Rule: Shooting only allowed after landing
+    if (shooter.state !== "landed") return;
 
     if (
       !data ||
@@ -327,15 +446,29 @@ io.on("connection", socket => {
 });
 
 // ===============================
-// PLAYER BROADCAST
+// PLAYER & AIRPLANE BROADCAST
 // ===============================
 
 setInterval(() => {
+
+  const plane = getPlanePosition();
+
+  // Keep any players currently aboard the airplane locked to its position
+  for (const p of Object.values(players)) {
+    if (p.state === "airplane") {
+      p.x = plane.x;
+      p.y = plane.y;
+      p.z = plane.z;
+      p.rotation = plane.rotation;
+    }
+  }
 
   io.emit(
     "playersUpdate",
     Object.values(players)
   );
+
+  io.emit("planeUpdate", plane);
 
 }, 50);
 

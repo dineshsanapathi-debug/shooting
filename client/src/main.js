@@ -3,6 +3,7 @@ import { io } from "socket.io-client";
 import { getCharacters, loadCharacter } from "./characterManager.js";
 import { createThirdPersonController } from "./thirdPersonController.js";
 import { WeaponInventory } from "./weaponInventory.js";
+import { AirDropController } from "./airDropController.js";
 import "./style.css";
 
 // ===============================
@@ -236,6 +237,173 @@ const weaponInventory = new WeaponInventory(
   socket
 );
 
+// ===============================
+// 3D CARGO AIRPLANE MODEL
+// ===============================
+
+function createAirplaneModel() {
+  const plane = new THREE.Group();
+  plane.name = "CargoAirplane";
+
+  // Fuselage (Body)
+  const bodyGeo = new THREE.CylinderGeometry(2.6, 2.9, 26, 16);
+  bodyGeo.rotateX(Math.PI / 2);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x334155,
+    roughness: 0.35,
+    metalness: 0.35
+  });
+  const fuselage = new THREE.Mesh(bodyGeo, bodyMat);
+  fuselage.castShadow = true;
+  plane.add(fuselage);
+
+  // Nose Cone (Cockpit)
+  const noseGeo = new THREE.ConeGeometry(2.6, 7, 16);
+  noseGeo.rotateX(-Math.PI / 2);
+  const noseMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.25 });
+  const nose = new THREE.Mesh(noseGeo, noseMat);
+  nose.position.z = 16.5;
+  plane.add(nose);
+
+  // Main Wings
+  const wingGeo = new THREE.BoxGeometry(34, 0.45, 6);
+  const wingMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.25 });
+  const wings = new THREE.Mesh(wingGeo, wingMat);
+  wings.position.set(0, 0.8, 2);
+  wings.castShadow = true;
+  plane.add(wings);
+
+  // Jet Engines under wings
+  const engineMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8 });
+  for (const xOff of [-8, 8]) {
+    const engGeo = new THREE.CylinderGeometry(0.95, 0.95, 5, 12);
+    engGeo.rotateX(Math.PI / 2);
+    const eng = new THREE.Mesh(engGeo, engineMat);
+    eng.position.set(xOff, -0.6, 2);
+    plane.add(eng);
+
+    // Jet Engine Exhaust Glow
+    const glowGeo = new THREE.CylinderGeometry(0.75, 0.85, 0.3, 12);
+    glowGeo.rotateX(Math.PI / 2);
+    const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+    glow.position.set(xOff, -0.6, -0.6);
+    plane.add(glow);
+  }
+
+  // Vertical Tail Fin
+  const tailFinGeo = new THREE.BoxGeometry(0.4, 6.5, 4.5);
+  const tailFin = new THREE.Mesh(tailFinGeo, bodyMat);
+  tailFin.position.set(0, 4.5, -10.5);
+  plane.add(tailFin);
+
+  // Horizontal Tail Stabilizers
+  const tailHorGeo = new THREE.BoxGeometry(11, 0.35, 3.2);
+  const tailHor = new THREE.Mesh(tailHorGeo, wingMat);
+  tailHor.position.set(0, 1.8, -11);
+  plane.add(tailHor);
+
+  return plane;
+}
+
+const airplane = createAirplaneModel();
+airplane.position.set(-160, 85, -160);
+scene.add(airplane);
+
+let currentPlanePos = { x: -160, y: 85, z: -160, rotation: 0 };
+
+socket.on("planeUpdate", data => {
+  if (data) {
+    currentPlanePos = data;
+    airplane.position.set(data.x, data.y, data.z);
+    airplane.rotation.y = data.rotation;
+  }
+});
+
+// ===============================
+// AIRDROP & PARACHUTE CONTROLLER
+// ===============================
+
+const airDrop = new AirDropController(
+  scene,
+  player,
+  camera,
+  socket
+);
+
+const airDropStatusEl = document.getElementById("airDropStatus");
+const altimeterEl = document.getElementById("altimeter");
+const altitudeValueEl = document.getElementById("altitudeValue");
+const airDropControlsEl = document.getElementById("airDropControls");
+const jumpPlaneBtn = document.getElementById("jumpPlaneButton");
+const parachuteBtn = document.getElementById("parachuteButton");
+
+function updateAirDropUI(state) {
+  if (!gameStarted) {
+    if (airDropStatusEl) airDropStatusEl.style.display = "none";
+    if (altimeterEl) altimeterEl.style.display = "none";
+    if (airDropControlsEl) airDropControlsEl.style.display = "none";
+    return;
+  }
+
+  if (state === "airplane") {
+    controller.setEnabled(false);
+    if (airDropStatusEl) {
+      airDropStatusEl.style.display = "block";
+      airDropStatusEl.textContent = "AIRPLANE (PRESS SPACE OR JUMP)";
+    }
+    if (altimeterEl) {
+      altimeterEl.style.display = "block";
+      if (altitudeValueEl) altitudeValueEl.textContent = "85";
+    }
+    if (airDropControlsEl) airDropControlsEl.style.display = "flex";
+    if (jumpPlaneBtn) jumpPlaneBtn.style.display = "block";
+    if (parachuteBtn) parachuteBtn.style.display = "none";
+  } else if (state === "falling") {
+    controller.setEnabled(false);
+    if (airDropStatusEl) {
+      airDropStatusEl.style.display = "block";
+      airDropStatusEl.textContent = "FREEFALLING (WASD STEER | SPACE PARACHUTE)";
+    }
+    if (altimeterEl) altimeterEl.style.display = "block";
+    if (airDropControlsEl) airDropControlsEl.style.display = "flex";
+    if (jumpPlaneBtn) jumpPlaneBtn.style.display = "none";
+    if (parachuteBtn) parachuteBtn.style.display = "block";
+  } else if (state === "parachuting") {
+    controller.setEnabled(false);
+    if (airDropStatusEl) {
+      airDropStatusEl.style.display = "block";
+      airDropStatusEl.textContent = "PARACHUTING (GLIDING TO TARGET)";
+    }
+    if (altimeterEl) altimeterEl.style.display = "block";
+    if (airDropControlsEl) airDropControlsEl.style.display = "none";
+    if (parachuteBtn) parachuteBtn.style.display = "none";
+  } else if (state === "landed") {
+    controller.setEnabled(true);
+    if (airDropStatusEl) airDropStatusEl.style.display = "none";
+    if (altimeterEl) altimeterEl.style.display = "none";
+    if (airDropControlsEl) airDropControlsEl.style.display = "none";
+
+    if (activeCharacter) {
+      activeCharacter.playAnimation("landing");
+      setTimeout(() => {
+        if (activeCharacter) activeCharacter.playAnimation("idle");
+      }, 500);
+    }
+  }
+}
+
+airDrop.onStateChange = newState => {
+  updateAirDropUI(newState);
+};
+
+jumpPlaneBtn?.addEventListener("click", () => {
+  airDrop.jumpFromPlane();
+});
+
+parachuteBtn?.addEventListener("click", () => {
+  airDrop.openParachute();
+});
+
 // Spawn weapons around the map
 const weaponSpawnPoints = [
   { id: "weapon_1", type: "rifle", x: 15, y: 0, z: 12 },
@@ -379,6 +547,13 @@ function createOtherPlayer(id, charId = "soldier1") {
 
   group.add(mesh);
 
+  // Parachute for other player
+  const remoteParachute = airDrop.createProceduralParachute();
+  remoteParachute.position.y = 3.6;
+  remoteParachute.visible = false;
+  group.add(remoteParachute);
+  group.userData.parachute = remoteParachute;
+
   group.userData.targetPosition = new THREE.Vector3();
   group.userData.targetRotation = 0;
 
@@ -424,6 +599,11 @@ if (startButton) {
     characterReady = true;
     gameStarted = true;
 
+    // Start in airplane drop mode
+    airDrop.state = "airplane";
+    player.position.set(currentPlanePos.x, currentPlanePos.y, currentPlanePos.z);
+    updateAirDropUI("airplane");
+
     if (characterScreen) {
       characterScreen.style.display = "none";
     }
@@ -455,7 +635,7 @@ let lastShootTime = 0;
 
 function shoot() {
 
-  if (!gameStarted || myHealth <= 0) return;
+  if (!gameStarted || myHealth <= 0 || airDrop.state !== "landed") return;
 
   const now = performance.now();
   if (now - lastShootTime < 200) return; // Cooldown
@@ -562,12 +742,14 @@ if (joystickElement && knob) {
     }
 
     controller.setJoystick(dx / maxDistance, dy / maxDistance);
+    airDrop.setJoystick(dx / maxDistance, dy / maxDistance);
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
   }
 
   function resetJoystickTouch() {
     activeTouch = null;
     controller.setJoystick(0, 0);
+    airDrop.setJoystick(0, 0);
     knob.style.transform = "translate(0px, 0px)";
   }
 
@@ -609,6 +791,15 @@ socket.on("playersUpdate", data => {
 
     remote.userData.targetRotation =
       item.rotation || 0;
+
+    if (remote.userData.parachute) {
+      remote.userData.parachute.visible = (item.state === "parachuting");
+    }
+    if (item.state === "falling") {
+      remote.rotation.x = 0.6;
+    } else {
+      remote.rotation.x = 0;
+    }
   }
 
   for (const id of Object.keys(otherPlayers)) {
@@ -623,6 +814,19 @@ socket.on("playersUpdate", data => {
 
   document.getElementById("health").textContent =
     "Health: " + myHealth;
+});
+
+socket.on("playerAirState", data => {
+  if (data.id === myId) {
+    if (data.state === "parachuting" && airDrop.state === "falling") {
+      airDrop.openParachute();
+    }
+  } else if (otherPlayers[data.id]) {
+    const remote = otherPlayers[data.id];
+    if (remote.userData.parachute) {
+      remote.userData.parachute.visible = (data.state === "parachuting");
+    }
+  }
 });
 
 socket.on("hit", data => {
@@ -727,52 +931,91 @@ function animate() {
     0.05
   );
 
-  // Update weapon inventory distance & prompt
-  weaponInventory.update();
+  // Update weapon inventory distance & prompt only after landed
+  if (airDrop.state === "landed") {
+    weaponInventory.update();
+  }
 
   if (gameStarted && characterReady && myHealth > 0) {
-    const state = controller.update(delta);
+    if (airDrop.state === "airplane") {
+      // Player rides inside the cargo airplane
+      player.position.set(currentPlanePos.x, currentPlanePos.y, currentPlanePos.z);
+      player.rotation.y = currentPlanePos.rotation;
 
-    if (activeCharacter) {
-      let animation = "idle";
-
-      if (state.jumping) {
-        animation = "jump";
-      } else if (state.crouching) {
-        animation = "crouch";
-      } else if (state.shooting) {
-        animation = "shoot";
-      } else if (state.running) {
-        animation = "run";
-      } else if (state.moving) {
-        animation = "walk";
+      if (activeCharacter) {
+        activeCharacter.playAnimation("idle");
+        activeCharacter.update(delta);
       }
 
-      activeCharacter.playAnimation(animation);
-      activeCharacter.update(delta);
-    }
+      // Tactical camera behind the airplane
+      const yaw = controller.getYaw();
+      camera.position.set(
+        player.position.x + Math.sin(yaw) * 16,
+        player.position.y + 8,
+        player.position.z + Math.cos(yaw) * 16
+      );
+      camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
 
-    if (state.shooting) {
-      shoot();
-    }
+    } else if (airDrop.state === "falling" || airDrop.state === "parachuting") {
+      const cameraYaw = controller.getYaw();
+      airDrop.update(delta, cameraYaw);
 
-    networkTimer += delta;
+      if (altitudeValueEl) {
+        altitudeValueEl.textContent = Math.max(0, Math.round(player.position.y));
+      }
 
-    if (networkTimer >= 0.05) {
-      socket.emit("move", {
-        x: player.position.x,
-        y: player.position.y,
-        z: player.position.z,
-        rotation: player.rotation.y,
-        moving: state.moving,
-        running: state.running,
-        jumping: state.jumping,
-        crouching: state.crouching,
-        aiming: state.aiming,
-        characterId: selectedCharacterId
-      });
+      if (activeCharacter) {
+        const anim = airDrop.state === "falling" ? "skydive" : "parachute";
+        activeCharacter.playAnimation(anim);
+        activeCharacter.update(delta);
+      }
+    } else {
+      // Landed - normal ground controller is active!
+      const state = controller.update(delta);
 
-      networkTimer = 0;
+      if (state) {
+        if (activeCharacter) {
+          let animation = "idle";
+
+          if (state.jumping) {
+            animation = "jump";
+          } else if (state.crouching) {
+            animation = "crouch";
+          } else if (state.shooting) {
+            animation = "shoot";
+          } else if (state.running) {
+            animation = "run";
+          } else if (state.moving) {
+            animation = "walk";
+          }
+
+          activeCharacter.playAnimation(animation);
+          activeCharacter.update(delta);
+        }
+
+        if (state.shooting) {
+          shoot();
+        }
+
+        networkTimer += delta;
+
+        if (networkTimer >= 0.05) {
+          socket.emit("move", {
+            x: player.position.x,
+            y: player.position.y,
+            z: player.position.z,
+            rotation: player.rotation.y,
+            moving: state.moving,
+            running: state.running,
+            jumping: state.jumping,
+            crouching: state.crouching,
+            aiming: state.aiming,
+            characterId: selectedCharacterId
+          });
+
+          networkTimer = 0;
+        }
+      }
     }
   }
 
